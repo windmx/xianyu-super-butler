@@ -520,7 +520,7 @@ const App: React.FC = () => {
                 )}
 
                 <p className="mt-7 border-t border-gray-100 pt-5 text-xs font-medium text-gray-400">
-                  闲鱼超级管家 · xy.corleom.com
+                  闲鱼超级管家
                 </p>
               </div>
             </div>

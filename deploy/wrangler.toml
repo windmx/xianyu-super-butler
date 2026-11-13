@@ -7,7 +7,7 @@ main = "announcement-worker.js"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# 绑定 KV 命名空间（已在 Cloudflare 面板创建）
+# 绑定 KV 命名空间（先在 Cloudflare 面板创建，再把 id 填到这里）
 [[kv_namespaces]]
 binding = "ANNOUNCEMENT_KV"
-id = "d6c5e6b30ac949a6a8405312d65c08fc"
+id = "YOUR_KV_NAMESPACE_ID"

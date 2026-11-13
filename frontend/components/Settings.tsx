@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Database,
-  ExternalLink,
   Eye,
   EyeOff,
   KeyRound,
@@ -547,11 +546,11 @@ const Settings: React.FC = () => {
                   ...settings,
                   announcement_source_url: e.target.value,
                 })}
-                placeholder="https://connect.corleom.com/announcement.json（留空即用此地址）"
+                placeholder="https://example.com/announcement.json"
                 className="ios-input mt-1 w-full rounded-md px-3 py-2 text-sm"
               />
               <p className="mt-1.5 text-xs text-gray-500">
-                留空则使用官方公告源，可填入自建地址替换。
+                留空则不拉取公告与更新信息，可填入自建公告源地址。
                 后端每 10 分钟拉取一次并缓存；远端不可用时沿用上次结果。
                 在「关于」页可手动点「检查更新」立即刷新。
               </p>
@@ -647,18 +646,6 @@ const Settings: React.FC = () => {
               />
               <span className="mt-1 block text-xs text-gray-500">
                 填写兼容 OpenAI 协议的服务根地址，无需补全 `/chat/completions`。
-              </span>
-              <span className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-                AI 不够用？
-                <a
-                  href="https://corleom.com/"
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1 font-semibold text-[var(--brand-text)] hover:underline"
-                >
-                  跳转到我的中转站
-                  <ExternalLink className="h-3 w-3" />
-                </a>
               </span>
             </label>
 
