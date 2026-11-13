@@ -18,6 +18,7 @@ import re
 from typing import List, Dict, Optional
 from loguru import logger
 from openai import OpenAI
+from app import knowledge_base
 from app.db_manager import db_manager
 
 
@@ -374,21 +375,80 @@ class AIReplyEngine:
             raise last_exc
         return None
 
-    def _resolve_system_prompt(self, raw_prompts: str, intent: str) -> str:
-        """兼容旧版 JSON 提示词和新版纯文本风格说明。"""
-        base_prompt = self.default_prompts.get(intent, self.default_prompts['default'])
-        if not raw_prompts or not raw_prompts.strip():
-            return base_prompt
+    # 可由用户覆盖的提示词分段。classify 已不再使用，不对外开放。
+    EDITABLE_INTENTS = ('default', 'price', 'tech')
+    PROMPT_MAX_LENGTH = 4000
 
+    def get_builtin_prompts(self) -> Dict[str, str]:
+        return {intent: self.default_prompts[intent] for intent in self.EDITABLE_INTENTS}
+
+    @classmethod
+    def parse_custom_prompts(cls, raw_prompts: Optional[str]) -> Dict[str, str]:
+        """把 custom_prompts 字段解析成 {default, price, tech, extra_rules}。
+
+        旧版这个字段是纯文本，含义是追加在内置提示词后的补充规则，
+        所以解析不了 JSON 时整段当作 extra_rules。
+        """
+        result = {key: '' for key in (*cls.EDITABLE_INTENTS, 'extra_rules')}
+        text = (raw_prompts or '').strip()
+        if not text:
+            return result
         try:
-            parsed = json.loads(raw_prompts)
+            parsed = json.loads(text)
         except (TypeError, json.JSONDecodeError):
-            return f"{base_prompt}\n\n卖家补充规则：\n{raw_prompts.strip()}"
+            parsed = None
+        if not isinstance(parsed, dict):
+            result['extra_rules'] = text
+            return result
+        for key in result:
+            value = parsed.get(key)
+            if isinstance(value, str):
+                result[key] = value.strip()
+        return result
 
-        if isinstance(parsed, dict):
-            selected = parsed.get(intent) or parsed.get('default')
-            if isinstance(selected, str) and selected.strip():
-                return selected.strip()
+    @classmethod
+    def serialize_custom_prompts(cls, prompts: Dict[str, str]) -> str:
+        parsed = {key: '' for key in (*cls.EDITABLE_INTENTS, 'extra_rules')}
+        for key in parsed:
+            value = prompts.get(key) if isinstance(prompts, dict) else None
+            if isinstance(value, str):
+                parsed[key] = value.strip()[:cls.PROMPT_MAX_LENGTH]
+        if not any(parsed.values()):
+            return ''
+        return json.dumps(parsed, ensure_ascii=False)
+
+    @staticmethod
+    def build_safety_prompt(item_desc: str, bargain_count, max_bargain_rounds,
+                            max_discount_percent, max_discount_amount) -> str:
+        """追加在提示词后的系统固定段，用户不可编辑。
+
+        议价底价校验和 _REASONING_MARKERS 的思维链拦截都依赖这里的措辞。
+        """
+        return f"""
+
+商品与业务事实：
+{item_desc}
+
+议价设置：
+- 当前议价次数：{bargain_count}
+- 最大议价轮数：{max_bargain_rounds}
+- 最大优惠百分比：{max_discount_percent}%
+- 最大优惠金额：{max_discount_amount}元
+
+安全边界：
+- 只能依据上述商品事实和知识库资料回答，不得编造库存、规格、物流或售后承诺。
+- 付款、发货、退款、收货和订单完成由系统订单状态与自动发货规则处理。
+- 未经系统确认，不得声称上述操作已成功，也不得要求买家重复付款。
+- 直接输出适合发送给买家的简短回复，不要解释规则。"""
+
+    def _resolve_system_prompt(self, raw_prompts: str, intent: str) -> str:
+        """按意图选提示词：用户自定义优先，否则用内置；补充规则始终追加。"""
+        prompts = self.parse_custom_prompts(raw_prompts)
+        builtin = self.default_prompts.get(intent, self.default_prompts['default'])
+        base_prompt = prompts.get(intent) or builtin
+        extra_rules = prompts.get('extra_rules')
+        if extra_rules:
+            return f"{base_prompt}\n\n卖家补充规则：\n{extra_rules}"
         return base_prompt
 
     # 部分服务端（vLLM、OpenRouter 转发的推理模型等）不走 reasoning_content，
@@ -613,8 +673,18 @@ class AIReplyEngine:
     
     def generate_reply(self, message: str, item_info: dict, chat_id: str,
                       cookie_id: str, user_id: str, item_id: str,
-                      skip_wait: bool = False) -> Optional[str]:
-        """生成AI回复"""
+                      skip_wait: bool = False,
+                      prompt_override: Optional[str] = None,
+                      require_knowledge_hit: bool = False,
+                      trace: Optional[dict] = None) -> Optional[str]:
+        """生成AI回复
+
+        prompt_override: 用未保存的提示词草稿代替账号配置（回复测试用）。
+        require_knowledge_hit: 知识库没有与本条消息相关的条目时不调用模型，
+            返回 None 交给后续回复环节。议价消息不受限制，商品价格本身就是依据。
+        trace: 传入字典时写入 intent、knowledge、skipped，供调用方展示依据。
+        """
+        trace = trace if trace is not None else {}
         if not self.is_ai_enabled(cookie_id):
             return None
         if self.is_system_or_order_event(message):
@@ -624,7 +694,18 @@ class AIReplyEngine:
         try:
             # 先检测意图（用于后续保存）
             intent = self.detect_intent(message, cookie_id)
+            trace['intent'] = intent
             logger.info(f"检测到意图: {intent} (账号: {cookie_id})")
+
+            knowledge = knowledge_base.retrieve(cookie_id, item_id, message)
+            trace['knowledge'] = [
+                {'id': entry.get('id'), 'title': entry.get('title'), 'reason': entry.get('reason')}
+                for entry in knowledge
+            ]
+            if require_knowledge_hit and intent != 'price' and not knowledge_base.has_match(knowledge):
+                trace['skipped'] = 'no_knowledge_hit'
+                logger.info(f"【{cookie_id}】知识库未命中，AI 回复交给下一个环节")
+                return None
             
             # 在锁外先保存用户消息到数据库，让所有消息都能立即保存
             message_created_at = self.save_conversation(chat_id, cookie_id, user_id, item_id, "user", message, intent)
@@ -691,7 +772,7 @@ class AIReplyEngine:
 
                 # 6. 构建提示词
                 system_prompt = self._resolve_system_prompt(
-                    settings.get('custom_prompts', ''),
+                    settings.get('custom_prompts', '') if prompt_override is None else prompt_override,
                     intent,
                 )
 
@@ -699,28 +780,18 @@ class AIReplyEngine:
                 item_desc = f"商品标题: {item_info.get('title', '未知')}\n"
                 item_desc += f"商品价格: {item_info.get('price', '未知')}元\n"
                 item_desc += f"商品描述: {item_info.get('desc', '无')}"
+                knowledge_text = knowledge_base.format_for_prompt(knowledge)
+                if knowledge_text:
+                    item_desc += f"\n\n店铺知识库（卖家提供的资料，可直接引用）：\n{knowledge_text}"
 
                 # 8. 构建角色化对话消息
-                max_bargain_rounds = settings.get('max_bargain_rounds', 3)
-                max_discount_percent = settings.get('max_discount_percent', 10)
-                max_discount_amount = settings.get('max_discount_amount', 100)
-
-                safety_prompt = f"""
-
-商品与业务事实：
-{item_desc}
-
-议价设置：
-- 当前议价次数：{bargain_count}
-- 最大议价轮数：{max_bargain_rounds}
-- 最大优惠百分比：{max_discount_percent}%
-- 最大优惠金额：{max_discount_amount}元
-
-安全边界：
-- 只能依据上述商品事实回答，不得编造库存、规格、物流或售后承诺。
-- 付款、发货、退款、收货和订单完成由系统订单状态与自动发货规则处理。
-- 未经系统确认，不得声称上述操作已成功，也不得要求买家重复付款。
-- 直接输出适合发送给买家的简短回复，不要解释规则。"""
+                safety_prompt = self.build_safety_prompt(
+                    item_desc,
+                    bargain_count,
+                    settings.get('max_bargain_rounds', 3),
+                    settings.get('max_discount_percent', 10),
+                    settings.get('max_discount_amount', 100),
+                )
 
                 messages = [
                     {"role": "system", "content": system_prompt + safety_prompt},
@@ -772,14 +843,20 @@ class AIReplyEngine:
 
     async def generate_reply_async(self, message: str, item_info: dict, chat_id: str,
                                    cookie_id: str, user_id: str, item_id: str,
-                                   skip_wait: bool = False) -> Optional[str]:
+                                   skip_wait: bool = False,
+                                   prompt_override: Optional[str] = None,
+                                   require_knowledge_hit: bool = False,
+                                   trace: Optional[dict] = None) -> Optional[str]:
         """
         异步包装器：在独立线程池中执行同步的 `generate_reply`，并返回结果。
         这样可以在异步代码中直接 await，而不阻塞事件循环。
         """
         try:
             import asyncio as _asyncio
-            return await _asyncio.to_thread(self.generate_reply, message, item_info, chat_id, cookie_id, user_id, item_id, skip_wait)
+            return await _asyncio.to_thread(
+                self.generate_reply, message, item_info, chat_id, cookie_id, user_id, item_id, skip_wait,
+                prompt_override, require_knowledge_hit, trace,
+            )
         except Exception as e:
             logger.error(f"异步生成回复失败: {e}")
             return None

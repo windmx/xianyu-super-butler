@@ -967,6 +967,37 @@ class DBManager:
             ON auto_reply_message_logs(reply_strategy, created_at DESC)
             ''')
 
+            # AI 知识库：item_id 为空表示全店通用；pinned 的条目每次都交给模型
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ai_knowledge_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                item_id TEXT DEFAULT '',
+                title TEXT NOT NULL,
+                keywords TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                pinned INTEGER DEFAULT 0,
+                enabled INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+            cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_ai_knowledge_lookup
+            ON ai_knowledge_entries(cookie_id, enabled)
+            ''')
+
+            # 每个账号的回复顺序与闲鱼离线自动回复处理方式，config 为 JSON
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reply_pipeline_settings (
+                cookie_id TEXT PRIMARY KEY,
+                config TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+
             # 插入默认系统设置（不包括管理员密码，由reply_server.py初始化）
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
@@ -3745,6 +3776,141 @@ class DBManager:
                 return keyword
         return None
 
+    # -------------------- AI 知识库 --------------------
+    _KNOWLEDGE_COLUMNS = (
+        'id', 'cookie_id', 'item_id', 'title', 'keywords', 'content',
+        'pinned', 'enabled', 'created_at', 'updated_at',
+    )
+
+    def _knowledge_row(self, row) -> Dict[str, Any]:
+        entry = dict(zip(self._KNOWLEDGE_COLUMNS, row))
+        entry['item_id'] = entry['item_id'] or ''
+        entry['keywords'] = entry['keywords'] or ''
+        entry['pinned'] = bool(entry['pinned'])
+        entry['enabled'] = bool(entry['enabled'])
+        return entry
+
+    def list_knowledge_entries(self, cookie_id: str, enabled_only: bool = False) -> List[Dict[str, Any]]:
+        with self.lock:
+            cursor = self.conn.cursor()
+            sql = f"SELECT {', '.join(self._KNOWLEDGE_COLUMNS)} FROM ai_knowledge_entries WHERE cookie_id = ?"
+            if enabled_only:
+                sql += " AND enabled = 1"
+            sql += " ORDER BY pinned DESC, updated_at DESC, id DESC"
+            cursor.execute(sql, (cookie_id,))
+            return [self._knowledge_row(row) for row in cursor.fetchall()]
+
+    def get_knowledge_entry(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                f"SELECT {', '.join(self._KNOWLEDGE_COLUMNS)} FROM ai_knowledge_entries WHERE id = ?",
+                (entry_id,),
+            )
+            row = cursor.fetchone()
+            return self._knowledge_row(row) if row else None
+
+    def create_knowledge_entries(self, cookie_id: str, entries: List[Dict[str, Any]]) -> List[int]:
+        ids = []
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                for entry in entries:
+                    cursor.execute('''
+                        INSERT INTO ai_knowledge_entries
+                        (cookie_id, item_id, title, keywords, content, pinned, enabled)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        cookie_id,
+                        entry.get('item_id') or '',
+                        entry['title'],
+                        entry.get('keywords') or '',
+                        entry['content'],
+                        int(bool(entry.get('pinned'))),
+                        int(bool(entry.get('enabled', True))),
+                    ))
+                    ids.append(cursor.lastrowid)
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+        return ids
+
+    def update_knowledge_entry(self, entry_id: int, cookie_id: str, fields: Dict[str, Any]) -> bool:
+        allowed = ('item_id', 'title', 'keywords', 'content', 'pinned', 'enabled')
+        assignments = []
+        params = []
+        for key in allowed:
+            if key not in fields or fields[key] is None:
+                continue
+            value = fields[key]
+            if key in ('pinned', 'enabled'):
+                value = int(bool(value))
+            assignments.append(f"{key} = ?")
+            params.append(value)
+        if not assignments:
+            return False
+        assignments.append("updated_at = CURRENT_TIMESTAMP")
+        params.extend([entry_id, cookie_id])
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                f"UPDATE ai_knowledge_entries SET {', '.join(assignments)} WHERE id = ? AND cookie_id = ?",
+                params,
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_knowledge_entries(self, cookie_id: str, entry_ids: List[int]) -> int:
+        if not entry_ids:
+            return 0
+        placeholders = ",".join("?" for _ in entry_ids)
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                f"DELETE FROM ai_knowledge_entries WHERE cookie_id = ? AND id IN ({placeholders})",
+                (cookie_id, *entry_ids),
+            )
+            self.conn.commit()
+            return cursor.rowcount
+
+    # -------------------- 回复顺序配置 --------------------
+    def get_reply_pipeline_config(self, cookie_id: str) -> Optional[Dict[str, Any]]:
+        """返回账号保存的回复顺序配置；未保存或解析失败时返回 None。"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "SELECT config FROM reply_pipeline_settings WHERE cookie_id = ?",
+                    (cookie_id,),
+                )
+                row = cursor.fetchone()
+            except Exception as e:
+                logger.error(f"读取回复顺序配置失败: {e}")
+                return None
+        if not row:
+            return None
+        try:
+            parsed = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def save_reply_pipeline_config(self, cookie_id: str, config: Dict[str, Any]) -> bool:
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO reply_pipeline_settings (cookie_id, config, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                ''', (cookie_id, json.dumps(config, ensure_ascii=False)))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"保存回复顺序配置失败: {e}")
+                self.conn.rollback()
+                return False
+
     # -------------------- 自动回复决策日志 --------------------
     def add_auto_reply_log(self, **fields) -> int:
         allowed_fields = (
@@ -3882,7 +4048,8 @@ class DBManager:
 
                         # 备份其他相关表
                         related_tables = ['cookie_status', 'default_replies', 'message_notifications',
-                                        'item_info', 'ai_reply_settings', 'ai_conversations']
+                                        'item_info', 'ai_reply_settings', 'ai_conversations',
+                                        'ai_knowledge_entries', 'reply_pipeline_settings']
 
                         for table in related_tables:
                             cursor.execute(f"SELECT * FROM {table} WHERE cookie_id IN ({placeholders})", user_cookie_ids)
@@ -3898,7 +4065,8 @@ class DBManager:
                         'cookies', 'keywords', 'cookie_status', 'cards',
                         'delivery_rules', 'default_replies', 'notification_channels',
                         'message_notifications', 'system_settings', 'item_info',
-                        'ai_reply_settings', 'ai_conversations', 'ai_item_cache'
+                        'ai_reply_settings', 'ai_conversations', 'ai_item_cache',
+                        'ai_knowledge_entries', 'reply_pipeline_settings'
                     ]
 
                     for table in tables:
@@ -3941,7 +4109,8 @@ class DBManager:
 
                         # 删除用户相关数据
                         related_tables = ['message_notifications', 'default_replies', 'item_info',
-                                        'cookie_status', 'keywords', 'ai_conversations', 'ai_reply_settings']
+                                        'cookie_status', 'keywords', 'ai_conversations', 'ai_reply_settings',
+                                        'ai_knowledge_entries', 'reply_pipeline_settings']
 
                         for table in related_tables:
                             cursor.execute(f"DELETE FROM {table} WHERE cookie_id IN ({placeholders})", user_cookie_ids)
@@ -3953,7 +4122,8 @@ class DBManager:
                     tables = [
                         'message_notifications', 'notification_channels', 'default_replies',
                         'delivery_rules', 'cards', 'item_info', 'cookie_status', 'keywords',
-                        'ai_conversations', 'ai_reply_settings', 'ai_item_cache', 'cookies'
+                        'ai_conversations', 'ai_reply_settings', 'ai_item_cache',
+                        'ai_knowledge_entries', 'reply_pipeline_settings', 'cookies'
                     ]
 
                     for table in tables:
@@ -3968,7 +4138,8 @@ class DBManager:
                     if table_name not in ['cookies', 'keywords', 'cookie_status', 'cards',
                                         'delivery_rules', 'default_replies', 'notification_channels',
                                         'message_notifications', 'system_settings', 'item_info',
-                                        'ai_reply_settings', 'ai_conversations', 'ai_item_cache']:
+                                        'ai_reply_settings', 'ai_conversations', 'ai_item_cache',
+                                        'ai_knowledge_entries', 'reply_pipeline_settings']:
                         continue
 
                     columns = table_data['columns']
