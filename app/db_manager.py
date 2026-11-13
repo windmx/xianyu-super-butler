@@ -170,7 +170,7 @@ class DBManager:
                 ai_enabled BOOLEAN DEFAULT FALSE,
                 model_name TEXT DEFAULT 'qwen-plus',
                 api_key TEXT,
-                base_url TEXT DEFAULT 'https://ai.corleom.com/v1',
+                base_url TEXT DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode/v1',
                 user_agent TEXT,
                 max_discount_percent INTEGER DEFAULT 10,
                 max_discount_amount INTEGER DEFAULT 100,
@@ -1082,6 +1082,14 @@ class DBManager:
             if 'user_agent' not in ai_setting_columns:
                 cursor.execute("ALTER TABLE ai_reply_settings ADD COLUMN user_agent TEXT")
                 logger.info("数据库迁移完成：添加AI设置列 user_agent")
+
+            # 旧版本把作者的中转站作为默认接口地址写入了账号设置，置空后回落到系统设置
+            cursor.execute(
+                "UPDATE ai_reply_settings SET base_url = '' WHERE base_url = ?",
+                ('https://ai.corleom.com/v1',),
+            )
+            if cursor.rowcount:
+                logger.info(f"数据库迁移完成：清理{cursor.rowcount}条旧默认AI接口地址")
 
             # 检查orders表是否存在seller_note列（卖家手动备注，空串=无备注）
             cursor.execute("PRAGMA table_info(orders)")
@@ -2836,7 +2844,7 @@ class DBManager:
                     settings.get('ai_enabled', False),
                     settings.get('model_name', 'qwen-plus'),
                     settings.get('api_key', ''),
-                    settings.get('base_url', 'https://ai.corleom.com/v1'),
+                    settings.get('base_url', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
                     settings.get('user_agent', ''),
                     settings.get('max_discount_percent', 10),
                     settings.get('max_discount_amount', 100),
@@ -2861,7 +2869,7 @@ class DBManager:
         则从系统设置中读取全局AI配置作为默认值
         """
         # 默认值常量，用于判断是否使用系统设置
-        DEFAULT_BASE_URL = 'https://ai.corleom.com/v1'
+        DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
         DEFAULT_MODEL = 'qwen-plus'
         
         with self.lock:
@@ -2929,7 +2937,7 @@ class DBManager:
                     'ai_enabled': False,
                     'model_name': 'qwen-plus',
                     'api_key': '',
-                    'base_url': 'https://ai.corleom.com/v1',
+                    'base_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
                     'user_agent': '',
                     'max_discount_percent': 10,
                     'max_discount_amount': 100,

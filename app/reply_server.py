@@ -6397,7 +6397,7 @@ class AIReplySettings(BaseModel):
     ai_enabled: bool
     model_name: str = "qwen-plus"
     api_key: str = ""
-    base_url: str = "https://ai.corleom.com/v1"
+    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     user_agent: str = ""
     max_discount_percent: int = 10
     max_discount_amount: int = 100
