@@ -20,11 +20,11 @@ import {
 import { notify } from '../services/feedback';
 import { EmptyState, PageHeader, PageLoading, SectionHeader } from './ui';
 
-const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1';
 
 const defaultSettings: AIReplySettings = {
   ai_enabled: false,
-  model_name: 'qwen-plus',
+  model_name: 'deepseek-chat',
   api_key: '',
   api_key_configured: false,
   base_url: DEFAULT_BASE_URL,
@@ -219,7 +219,7 @@ const AIReply: React.FC = () => {
                       value={settings.model_name}
                       onChange={event => updateSetting('model_name', event.target.value)}
                       className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
-                      placeholder="qwen-plus"
+                      placeholder="deepseek-chat"
                     />
                   </label>
                   <label className="md:col-span-2">
