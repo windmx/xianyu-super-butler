@@ -1161,16 +1161,9 @@ const AccountList: React.FC = () => {
                 </div>
               </div>
 
-              {/* 自定义提示词 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">自定义提示词（可选）</label>
-                <textarea
-                  value={aiSettings.custom_prompts}
-                  onChange={(e) => setAiSettings({ ...aiSettings, custom_prompts: e.target.value })}
-                  placeholder="输入自定义的AI回复规则或风格指引...&#10;&#10;例如：回复时保持礼貌专业、使用简洁的语言、强调产品质量等"
-                  className="ios-input h-36 w-full resize-y rounded-md px-3 py-2.5"
-                />
-              </div>
+              <p className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-xs leading-5 text-gray-600">
+                提示词和店铺知识库请到左侧菜单“AI 回复”页面编辑，这里保存不会改动它们。
+              </p>
 
               {/* AI如何工作 */}
               <div className="rounded-md border border-blue-200 bg-blue-50 p-4">

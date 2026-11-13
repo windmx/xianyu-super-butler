@@ -38,6 +38,17 @@ export const notify = (message: unknown, type?: FeedbackType) => {
   }));
 };
 
+/** 取后端 HTTPException 的 detail；422 校验错误是数组，取第一条的 msg。 */
+export const apiErrorMessage = (error: unknown, fallback: string): string => {
+  const detail = (error as { response?: { data?: { detail?: unknown } } } | undefined)?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail.trim();
+  if (Array.isArray(detail)) {
+    const first = detail[0] as { msg?: unknown } | undefined;
+    if (first && typeof first.msg === 'string') return `${fallback}：${first.msg}`;
+  }
+  return fallback;
+};
+
 export const confirmAction = (
   message: string,
   options: Partial<Pick<ConfirmEventDetail, 'title' | 'confirmLabel' | 'cancelLabel' | 'danger'>> = {},

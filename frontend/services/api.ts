@@ -11,7 +11,8 @@ import {
   , ChatAccount, ChatConversation, ChatMessage, ProductMaterial,
   ProductFilterRule, ProductDeleteRule, AutomationTaskRun,
   ProductAutomationResult, ProductDeletePreview, QuickPhrase,
-  AnnouncementPayload
+  AnnouncementPayload, AIPromptDefaults, KnowledgeEntry, KnowledgeHit,
+  ReplyPipelineConfig, ReplyStageKey
 } from '../types';
 
 // Auth
@@ -1033,6 +1034,7 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
     model_name: settings.model_name ?? 'qwen-plus',
     api_key: settings.api_key ?? '',
     base_url: settings.base_url ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    user_agent: settings.user_agent ?? '',
     max_discount_percent: settings.max_discount_percent ?? 10,
     max_discount_amount: settings.max_discount_amount ?? 100,
     max_bargain_rounds: settings.max_bargain_rounds ?? 3,
@@ -1051,9 +1053,17 @@ export const testAIConnection = async (
     item_title?: string;
     item_price?: number;
     item_desc?: string;
+    item_id?: string;
+    custom_prompts?: string;
   } = {},
-): Promise<ApiResponse & { reply?: string }> => {
-  const result = await post<{ success?: boolean; message?: string; reply?: string }>(
+): Promise<ApiResponse & { reply?: string; intent?: string; knowledge?: KnowledgeHit[] }> => {
+  const result = await post<{
+    success?: boolean;
+    message?: string;
+    reply?: string;
+    intent?: string;
+    knowledge?: KnowledgeHit[];
+  }>(
     `/ai-reply-test/${cookieId}`,
     { message: '你好，这是一条测试消息', ...payload },
   );
@@ -1061,8 +1071,67 @@ export const testAIConnection = async (
     success: result.success ?? true,
     message: result.message || 'AI 连接测试成功',
     reply: result.reply,
+    intent: result.intent,
+    knowledge: result.knowledge || [],
   };
 }
+
+export const getAIPromptDefaults = async (): Promise<AIPromptDefaults> => {
+  return get('/ai-reply-prompts/defaults');
+};
+
+// AI 知识库
+export const getKnowledgeEntries = async (cookieId: string): Promise<KnowledgeEntry[]> => {
+  const result = await get<{ entries: KnowledgeEntry[] }>(`/ai-knowledge/${cookieId}`);
+  return result.entries || [];
+};
+
+export type KnowledgeEntryInput = Pick<KnowledgeEntry, 'title' | 'content' | 'keywords' | 'item_id' | 'pinned' | 'enabled'>;
+
+export const createKnowledgeEntry = async (cookieId: string, entry: KnowledgeEntryInput): Promise<KnowledgeEntry> => {
+  const result = await post<{ entry: KnowledgeEntry }>(`/ai-knowledge/${cookieId}`, entry);
+  return result.entry;
+};
+
+export const updateKnowledgeEntry = async (
+  cookieId: string,
+  entryId: number,
+  changes: Partial<KnowledgeEntryInput>,
+): Promise<KnowledgeEntry> => {
+  const result = await put<{ entry: KnowledgeEntry }>(`/ai-knowledge/${cookieId}/${entryId}`, changes);
+  return result.entry;
+};
+
+export const deleteKnowledgeEntries = async (cookieId: string, ids: number[]): Promise<number> => {
+  const result = await post<{ deleted: number }>(`/ai-knowledge/${cookieId}/delete`, { ids });
+  return result.deleted;
+};
+
+export const importKnowledgeEntries = async (
+  cookieId: string,
+  payload: { text: string; item_id?: string; pinned?: boolean },
+): Promise<{ imported: number; invalid_lines: number[] }> => {
+  return post(`/ai-knowledge/${cookieId}/import`, payload);
+};
+
+export const matchKnowledge = async (
+  cookieId: string,
+  payload: { message: string; item_id?: string },
+): Promise<{ matched: boolean; entries: KnowledgeHit[] }> => {
+  return post(`/ai-knowledge/${cookieId}/match`, payload);
+};
+
+// 回复顺序
+export const getReplyPipeline = async (
+  cookieId: string,
+): Promise<{ config: ReplyPipelineConfig; presets: Record<string, ReplyStageKey[]> }> => {
+  return get(`/reply-pipeline/${cookieId}`);
+};
+
+export const saveReplyPipeline = async (cookieId: string, config: ReplyPipelineConfig): Promise<ReplyPipelineConfig> => {
+  const result = await put<{ config: ReplyPipelineConfig }>(`/reply-pipeline/${cookieId}`, config);
+  return result.config;
+};
 
 // Notification Channels
 export const getNotificationChannels = async (): Promise<{ success: boolean; data: NotificationChannel[] }> => {
