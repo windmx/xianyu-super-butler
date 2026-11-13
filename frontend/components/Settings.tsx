@@ -639,7 +639,7 @@ const Settings: React.FC = () => {
               <span className="field-label">API 地址</span>
               <input
                 type="text"
-                value={settings.ai_api_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}
+                value={settings.ai_api_url || 'https://api.deepseek.com/v1'}
                 onChange={(event) => setSettings({ ...settings, ai_api_url: event.target.value })}
                 className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
                 placeholder="https://api.openai.com/v1"
@@ -674,10 +674,10 @@ const Settings: React.FC = () => {
               <span className="field-label">默认模型</span>
               <input
                 type="text"
-                value={settings.ai_model || 'qwen-plus'}
+                value={settings.ai_model || 'deepseek-chat'}
                 onChange={(event) => setSettings({ ...settings, ai_model: event.target.value })}
                 className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
-                placeholder="qwen-plus"
+                placeholder="deepseek-chat"
               />
               <span className="mt-1 block text-xs text-gray-500">
                 填写服务商提供的模型名称，支持自定义模型。
@@ -697,7 +697,7 @@ const Settings: React.FC = () => {
             <div className="lg:col-span-2">
               <NoticeBanner
                 type="info"
-                message="常用兼容服务包括阿里云 DashScope 和 OpenAI。API Key 仅保存在当前系统配置中。"
+                message="常用兼容服务包括 DeepSeek、阿里云 DashScope 和 OpenAI。API Key 仅保存在当前系统配置中。"
               />
             </div>
           </div>
