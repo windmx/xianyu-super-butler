@@ -240,12 +240,12 @@ class GeminiProtocolRoutingTests(unittest.TestCase):
         }
         self.assertFalse(self.engine._is_gemini_api(settings))
 
-    def test_default_relay_base_url_is_treated_as_openai_protocol(self):
-        """内置默认地址（作者中转站）也是 OpenAI 兼容，不能因模型名误判。"""
+    def test_default_base_url_is_treated_as_openai_protocol(self):
+        """内置默认地址（DeepSeek）也是 OpenAI 兼容，不能因模型名误判。"""
         settings = {
             "model_name": "gemini-2.5-pro",
             "api_key": "relay-key",
-            "base_url": "https://ai.corleom.com/v1",
+            "base_url": "https://api.deepseek.com/v1",
         }
         self.assertFalse(self.engine._is_gemini_api(settings))
 

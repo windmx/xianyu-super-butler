@@ -1031,9 +1031,9 @@ export const getAccountAISettings = async (cookieId: string): Promise<AIReplySet
 export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>): Promise<ApiResponse> => {
   const payload = {
     ai_enabled: settings.ai_enabled ?? false,
-    model_name: settings.model_name ?? 'qwen-plus',
+    model_name: settings.model_name ?? 'deepseek-chat',
     api_key: settings.api_key ?? '',
-    base_url: settings.base_url ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    base_url: settings.base_url ?? 'https://api.deepseek.com/v1',
     user_agent: settings.user_agent ?? '',
     max_discount_percent: settings.max_discount_percent ?? 10,
     max_discount_amount: settings.max_discount_amount ?? 100,

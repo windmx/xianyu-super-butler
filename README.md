@@ -2,9 +2,6 @@
 
 面向闲鱼卖家的账号、商品、订单、消息、自动回复与自动发货一体化管理系统。
 *一款能让你的想法'变现'的强大作品* 
-### 推荐使用云端版（GPT6自动过滑块+人工巡检）
-云端saas版本：https://xy.corleom.com/
-**本项目征集PR、功能更新，任何一个提交PR的作者会在未来获得顶配模型token奖励**
 
 [![GitHub Stars](https://img.shields.io/github/stars/23Star/xianyu-super-butler?style=flat&logo=github&color=f5b301)](https://github.com/23Star/xianyu-super-butler/stargazers)
 [![Version](https://img.shields.io/badge/Version-3.3.0-52c41a)](https://github.com/23Star/xianyu-super-butler/releases)
@@ -43,7 +40,7 @@
 | 消息管理 | 闲鱼会话列表、消息收发、搜索筛选、回复决策日志和过滤规则 |
 | 通知与日志 | 通知渠道、账号绑定、风险日志和系统日志 |
 | 设置 | 管理员账号与改密、注册与邮箱验证开关、服务、备份及系统配置 |
-| 公告与更新 | 从自建地址拉取公告与版本信息，首页横幅提示，「关于」页手动检查更新 |
+| 公告与更新 | 配置自建地址后拉取公告与版本信息，首页横幅提示，「关于」页手动检查更新 |
 
 ## 界面预览
 
@@ -196,22 +193,7 @@ git pull && docker compose up -d --build
 > **滑块与人机验证、部署失败排查、使用流程** 见 [docs/deployment.md](docs/deployment.md)。
 > 自动过滑块受平台风控限制不保证成功，自动失败时可在账号页转人工验证。
 
-## 交流与反馈
-
-<table>
-  <tr>
-    <th align="center">微信群</th>
-    <th align="center">QQ群</th>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/community/wechat-group.jpg" alt="闲鱼超级管家微信群二维码" width="180"></td>
-    <td align="center"><img src="docs/community/qq-group.jpg" alt="闲鱼超级管家QQ群二维码" width="180"></td>
-  </tr>
-  <tr>
-    <td align="center">二维码失效后会在仓库更新</td>
-    <td align="center">群号：704866149</td>
-  </tr>
-</table>
+## 反馈
 
 缺陷和功能建议请提交到 [GitHub Issues](https://github.com/23Star/xianyu-super-butler/issues)。
 

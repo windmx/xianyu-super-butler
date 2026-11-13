@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Database,
-  ExternalLink,
   Eye,
   EyeOff,
   KeyRound,
@@ -547,11 +546,11 @@ const Settings: React.FC = () => {
                   ...settings,
                   announcement_source_url: e.target.value,
                 })}
-                placeholder="https://connect.corleom.com/announcement.json（留空即用此地址）"
+                placeholder="https://example.com/announcement.json"
                 className="ios-input mt-1 w-full rounded-md px-3 py-2 text-sm"
               />
               <p className="mt-1.5 text-xs text-gray-500">
-                留空则使用官方公告源，可填入自建地址替换。
+                留空则不拉取公告与更新信息，可填入自建公告源地址。
                 后端每 10 分钟拉取一次并缓存；远端不可用时沿用上次结果。
                 在「关于」页可手动点「检查更新」立即刷新。
               </p>
@@ -640,25 +639,13 @@ const Settings: React.FC = () => {
               <span className="field-label">API 地址</span>
               <input
                 type="text"
-                value={settings.ai_api_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1'}
+                value={settings.ai_api_url || 'https://api.deepseek.com/v1'}
                 onChange={(event) => setSettings({ ...settings, ai_api_url: event.target.value })}
                 className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
                 placeholder="https://api.openai.com/v1"
               />
               <span className="mt-1 block text-xs text-gray-500">
                 填写兼容 OpenAI 协议的服务根地址，无需补全 `/chat/completions`。
-              </span>
-              <span className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-                AI 不够用？
-                <a
-                  href="https://corleom.com/"
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1 font-semibold text-[var(--brand-text)] hover:underline"
-                >
-                  跳转到我的中转站
-                  <ExternalLink className="h-3 w-3" />
-                </a>
               </span>
             </label>
 
@@ -687,10 +674,10 @@ const Settings: React.FC = () => {
               <span className="field-label">默认模型</span>
               <input
                 type="text"
-                value={settings.ai_model || 'qwen-plus'}
+                value={settings.ai_model || 'deepseek-chat'}
                 onChange={(event) => setSettings({ ...settings, ai_model: event.target.value })}
                 className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
-                placeholder="qwen-plus"
+                placeholder="deepseek-chat"
               />
               <span className="mt-1 block text-xs text-gray-500">
                 填写服务商提供的模型名称，支持自定义模型。
@@ -710,7 +697,7 @@ const Settings: React.FC = () => {
             <div className="lg:col-span-2">
               <NoticeBanner
                 type="info"
-                message="常用兼容服务包括阿里云 DashScope 和 OpenAI。API Key 仅保存在当前系统配置中。"
+                message="常用兼容服务包括 DeepSeek、阿里云 DashScope 和 OpenAI。API Key 仅保存在当前系统配置中。"
               />
             </div>
           </div>

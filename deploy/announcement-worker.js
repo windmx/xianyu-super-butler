@@ -1,7 +1,7 @@
 /**
  * 闲鱼智控 —— 公告与版本发布服务
  *
- * 部署在 connect.corleom.com，供各客户端拉取公告和检查更新。
+ * 部署到自己的 Cloudflare Workers 域名，供各客户端拉取公告和检查更新。
  *
  * 路由：
  *   GET  /announcement.json  公开，客户端定时拉取（无需鉴权）
