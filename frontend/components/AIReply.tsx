@@ -1,24 +1,36 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  BookOpen,
   Bot,
   CheckCircle2,
   Eye,
   EyeOff,
+  FileText,
   Loader2,
   MessageSquareText,
   Play,
   Save,
   ShieldCheck,
+  SlidersHorizontal,
 } from 'lucide-react';
-import { AccountDetail, AIReplySettings } from '../types';
+import { AccountDetail, AIPromptConfig, AIPromptDefaults, AIReplySettings, Item, KnowledgeHit, ReplyPipelineConfig } from '../types';
 import {
   getAccountAISettings,
   getAccountDetails,
+  getAIPromptDefaults,
+  getItems,
+  getReplyPipeline,
   testAIConnection,
   updateAccountAISettings,
 } from '../services/api';
-import { notify } from '../services/feedback';
-import { EmptyState, PageHeader, PageLoading, SectionHeader } from './ui';
+import { apiErrorMessage, notify } from '../services/feedback';
+import { emptyPromptConfig, INTENT_LABELS, parsePromptConfig, serializePromptConfig } from '../utils/aiPrompts';
+import { describeStageOrder, NATIVE_MODE_OPTIONS, REPLY_PIPELINE_CHANGED_EVENT } from '../utils/replyPipeline';
+import AIKnowledgeBase, { ItemScopeSelect } from './AIKnowledgeBase';
+import AIPromptEditor from './AIPromptEditor';
+import { EmptyState, PageHeader, PageLoading, PageTabs, SectionHeader } from './ui';
+
+type AIReplyTab = 'model' | 'prompts' | 'knowledge';
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1';
 
@@ -47,12 +59,25 @@ const AIReply: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [testMessage, setTestMessage] = useState('你好，这个商品现在还能买吗？');
+  const [testItemId, setTestItemId] = useState('');
   const [testReply, setTestReply] = useState('');
+  const [testIntent, setTestIntent] = useState('');
+  const [testKnowledge, setTestKnowledge] = useState<KnowledgeHit[]>([]);
+  const [tab, setTab] = useState<AIReplyTab>('model');
+  const [prompts, setPrompts] = useState<AIPromptConfig>(emptyPromptConfig());
+  const [promptDefaults, setPromptDefaults] = useState<AIPromptDefaults | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [pipeline, setPipeline] = useState<ReplyPipelineConfig | null>(null);
 
   const selectedAccount = useMemo(
     () => accounts.find(account => account.id === selectedAccountId),
     [accounts, selectedAccountId],
   );
+  const accountItems = useMemo(
+    () => items.filter(item => item.cookie_id === selectedAccountId),
+    [items, selectedAccountId],
+  );
+  const customizedPromptCount = Object.values(prompts).filter(Boolean).length;
 
   useEffect(() => {
     getAccountDetails()
@@ -62,17 +87,43 @@ const AIReply: React.FC = () => {
       })
       .catch(error => notify(error instanceof Error ? error.message : '账号加载失败', 'error'))
       .finally(() => setLoading(false));
+    getAIPromptDefaults().then(setPromptDefaults).catch(() => setPromptDefaults(null));
+    getItems().then(setItems).catch(() => setItems([]));
   }, []);
+
+  const applySettings = (data: AIReplySettings) => {
+    setSettings({ ...defaultSettings, ...data, api_key: '' });
+    setPrompts(parsePromptConfig(data.custom_prompts));
+  };
+
+  const loadPipeline = (cookieId: string) => {
+    getReplyPipeline(cookieId)
+      .then(result => setPipeline(result.config))
+      .catch(() => setPipeline(null));
+  };
 
   useEffect(() => {
     if (!selectedAccountId) return;
     setLoading(true);
     setTestReply('');
+    setTestIntent('');
+    setTestKnowledge([]);
+    setTestItemId('');
     setShowApiKey(false);
     getAccountAISettings(selectedAccountId)
-      .then(data => setSettings({ ...defaultSettings, ...data, api_key: '' }))
+      .then(applySettings)
       .catch(error => notify(error instanceof Error ? error.message : 'AI配置加载失败', 'error'))
       .finally(() => setLoading(false));
+    loadPipeline(selectedAccountId);
+  }, [selectedAccountId]);
+
+  useEffect(() => {
+    const onChanged = (event: Event) => {
+      const cookieId = (event as CustomEvent<string>).detail;
+      if (cookieId === selectedAccountId) loadPipeline(cookieId);
+    };
+    window.addEventListener(REPLY_PIPELINE_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(REPLY_PIPELINE_CHANGED_EVENT, onChanged);
   }, [selectedAccountId]);
 
   const updateSetting = <K extends keyof AIReplySettings>(key: K, value: AIReplySettings[K]) => {
@@ -91,12 +142,11 @@ const AIReply: React.FC = () => {
 
     setSaving(true);
     try {
-      await updateAccountAISettings(selectedAccountId, settings);
-      const refreshed = await getAccountAISettings(selectedAccountId);
-      setSettings({ ...defaultSettings, ...refreshed, api_key: '' });
+      await updateAccountAISettings(selectedAccountId, { ...settings, custom_prompts: serializePromptConfig(prompts) });
+      applySettings(await getAccountAISettings(selectedAccountId));
       notify('人工智能回复配置已保存', 'success');
     } catch (error) {
-      notify(error instanceof Error ? error.message : 'AI配置保存失败', 'error');
+      notify(apiErrorMessage(error, 'AI配置保存失败'), 'error');
     } finally {
       setSaving(false);
     }
@@ -109,21 +159,31 @@ const AIReply: React.FC = () => {
     }
     setTesting(true);
     setTestReply('');
+    setTestIntent('');
+    setTestKnowledge([]);
+    const item = accountItems.find(candidate => candidate.item_id === testItemId);
+    const price = Number.parseFloat(String(item?.item_price ?? '').replace(/[^\d.]/g, ''));
     try {
       const result = await testAIConnection(selectedAccountId, {
         message: testMessage.trim(),
-        item_title: '测试商品',
-        item_price: 100,
-        item_desc: '仅用于测试人工智能回复，不会发送到闲鱼。',
+        item_id: item?.item_id,
+        item_title: item?.item_title || '测试商品',
+        item_price: Number.isFinite(price) ? price : 100,
+        item_desc: item?.item_detail || item?.item_description || '仅用于测试人工智能回复，不会发送到闲鱼。',
+        custom_prompts: serializePromptConfig(prompts),
       });
       setTestReply(result.reply || result.message || '测试完成');
+      setTestIntent(result.intent || '');
+      setTestKnowledge(result.knowledge || []);
       notify('AI回复测试完成', 'success');
     } catch (error) {
-      notify(error instanceof Error ? error.message : 'AI回复测试失败', 'error');
+      notify(apiErrorMessage(error, 'AI回复测试失败'), 'error');
     } finally {
       setTesting(false);
     }
   };
+
+  const nativeModeLabel = NATIVE_MODE_OPTIONS.find(option => option.id === pipeline?.native_auto_reply_mode)?.label;
 
   if (loading && accounts.length === 0) {
     return <PageLoading label="正在加载 AI 回复配置" />;
@@ -133,7 +193,7 @@ const AIReply: React.FC = () => {
     <div className="page-stack animate-fade-in">
       <PageHeader
         title="AI 回复"
-        description="按账号配置模型连接、上下文记忆、议价边界和业务回复规则。"
+        description="按账号配置模型连接、提示词、店铺知识库和议价边界。"
         icon={Bot}
         actions={(
           <div className="flex min-w-0 flex-wrap items-end gap-2">
@@ -151,15 +211,17 @@ const AIReply: React.FC = () => {
                 ))}
               </select>
             </label>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving || !selectedAccountId}
-              className="ios-btn-primary flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {saving ? '保存中' : '保存配置'}
-            </button>
+            {tab !== 'knowledge' && (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || !selectedAccountId}
+                className="ios-btn-primary flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {saving ? '保存中' : '保存配置'}
+              </button>
+            )}
           </div>
         )}
       />
@@ -179,7 +241,11 @@ const AIReply: React.FC = () => {
                 {selectedAccount?.nickname || selectedAccount?.remark || selectedAccountId}
               </div>
               <p className="mt-1 text-sm text-gray-500">
-                回复优先级：关键词回复 → 人工智能回复 → 默认回复。AI失败时不会中断消息处理。
+                {pipeline
+                  ? `回复顺序：${describeStageOrder(pipeline)}。`
+                  : '回复顺序加载中。'}
+                {nativeModeLabel && ` 闲鱼离线自动回复：${nativeModeLabel}。`}
+                AI 失败时会交给下一个环节。可在“自动回复 → 回复顺序”中调整。
               </p>
             </div>
             <label className="flex cursor-pointer items-center gap-3">
@@ -195,8 +261,26 @@ const AIReply: React.FC = () => {
             </label>
           </section>
 
+          <PageTabs
+            value={tab}
+            onChange={setTab}
+            ariaLabel="AI 回复设置"
+            items={[
+              { id: 'model', label: '模型与策略', icon: SlidersHorizontal },
+              { id: 'prompts', label: '提示词', icon: FileText, count: customizedPromptCount || undefined },
+              { id: 'knowledge', label: '知识库', icon: BookOpen },
+            ]}
+          />
+
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
             <div className="space-y-6">
+              {tab === 'prompts' && (
+                <AIPromptEditor value={prompts} onChange={setPrompts} defaults={promptDefaults} />
+              )}
+              {tab === 'knowledge' && (
+                <AIKnowledgeBase cookieId={selectedAccountId} items={accountItems} />
+              )}
+              {tab === 'model' && (<>
               <section className="section-panel">
                 <SectionHeader
                   title="模型连接"
@@ -266,8 +350,8 @@ const AIReply: React.FC = () => {
 
               <section className="section-panel">
                 <SectionHeader
-                  title="回复策略"
-                  description="约束议价空间，并补充账号专属的语气、承诺和售后规则。"
+                  title="议价边界"
+                  description="AI 报价不会低于这里的限制；语气和业务规则请到“提示词”页签编辑。"
                   icon={MessageSquareText}
                 />
                 <div className="grid gap-4 p-5 sm:grid-cols-3">
@@ -301,15 +385,6 @@ const AIReply: React.FC = () => {
                       value={settings.max_bargain_rounds}
                       onChange={event => updateSetting('max_bargain_rounds', Number(event.target.value))}
                       className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
-                    />
-                  </label>
-                  <label className="sm:col-span-3">
-                    <span className="mb-1.5 block text-sm font-semibold text-gray-700">回复风格与业务规则</span>
-                    <textarea
-                      value={settings.custom_prompts}
-                      onChange={event => updateSetting('custom_prompts', event.target.value)}
-                      className="ios-input min-h-36 w-full resize-y rounded-md px-3 py-2.5 text-sm leading-6"
-                      placeholder="例如：语气简洁，不承诺未确认的库存；涉及售后时引导买家说明订单号。"
                     />
                   </label>
                 </div>
@@ -365,13 +440,14 @@ const AIReply: React.FC = () => {
                   </p>
                 </div>
               </section>
+              </>)}
             </div>
 
             <aside className="space-y-5">
               <section className="section-panel">
                 <SectionHeader
                   title="回复测试"
-                  description="只生成文本，不会发送到闲鱼会话。"
+                  description="使用页面上未保存的提示词生成文本，不会发送到闲鱼会话。"
                   icon={Play}
                 />
                 <div className="p-5">
@@ -380,6 +456,13 @@ const AIReply: React.FC = () => {
                     onChange={event => setTestMessage(event.target.value)}
                     className="ios-input min-h-24 w-full resize-y rounded-md px-3 py-2.5 text-sm"
                   />
+                  <label className="mt-3 block">
+                    <span className="field-label">模拟咨询的商品</span>
+                    <ItemScopeSelect value={testItemId} items={accountItems} onChange={setTestItemId} emptyLabel="测试商品（不指定）" />
+                  </label>
+                  {!settings.ai_enabled && (
+                    <p className="mt-2 text-xs text-gray-500">需先启用并保存 AI 回复后才能测试。</p>
+                  )}
                   <button
                     type="button"
                     onClick={handleTest}
@@ -390,8 +473,26 @@ const AIReply: React.FC = () => {
                     {testing ? '生成中' : '测试回复'}
                   </button>
                   {testReply && (
-                    <div className="mt-4 border-l-4 border-yellow-400 bg-yellow-50 px-4 py-3 text-sm leading-6 text-gray-800">
-                      {testReply}
+                    <div className="mt-4 space-y-3">
+                      <div className="border-l-4 border-yellow-400 bg-yellow-50 px-4 py-3 text-sm leading-6 text-gray-800">
+                        {testReply}
+                      </div>
+                      <dl className="space-y-1.5 text-xs text-gray-600">
+                        {testIntent && (
+                          <div className="flex gap-2">
+                            <dt className="shrink-0 font-semibold">使用提示词</dt>
+                            <dd>{INTENT_LABELS[testIntent] || testIntent}</dd>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <dt className="shrink-0 font-semibold">引用知识</dt>
+                          <dd className="min-w-0">
+                            {testKnowledge.length
+                              ? testKnowledge.map(hit => `${hit.title}${hit.reason === 'pinned' ? '（置顶）' : ''}`).join('、')
+                              : '无'}
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
                   )}
                 </div>
@@ -403,7 +504,7 @@ const AIReply: React.FC = () => {
                   <div>
                     <h2 className="text-sm font-bold text-gray-900">运行保护</h2>
                     <p className="mt-1 text-xs leading-5 text-gray-500">
-                      密钥不会回传到浏览器；接口超时、空回复或格式异常时，系统会自动继续使用默认回复。
+                      密钥不会回传到浏览器；接口超时、空回复或格式异常时，系统会按回复顺序交给下一个环节。
                     </p>
                   </div>
                 </div>

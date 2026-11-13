@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {AccountDetail, ShippingRule, DefaultReply} from '../types';
 import { getAccountDetails, getReplyRules, updateReplyRule, deleteReplyRule, getShippingRules, updateShippingRule, deleteShippingRule, getCards, getDefaultReplies, getDefaultReply, updateDefaultReply, deleteDefaultReply, clearDefaultReplyRecords } from '../services/api';
-import { Plus, Trash2, MessageSquare, X, Save, Key, Truck, Power, PowerOff, Edit2, RefreshCw, Sparkles, Bot } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, X, Save, Key, Truck, Power, PowerOff, Edit2, RefreshCw, Sparkles, Bot, ListOrdered } from 'lucide-react';
 import { confirmAction, notify } from '../services/feedback';
+import ReplyPipelinePanel from './ReplyPipelinePanel';
 import { EmptyState, PageHeader, PageLoading, PageTabs, SectionHeader } from './ui';
 
-type ReplyTabType = 'reply' | 'default';
+type ReplyTabType = 'reply' | 'default' | 'order';
 type KeywordsMode = 'reply' | 'delivery';
 
 interface KeywordsProps {
@@ -383,7 +384,7 @@ const Keywords: React.FC<KeywordsProps> = ({ mode }) => {
       <PageHeader
         title={mode === 'reply' ? '自动回复' : '通用自动发货'}
         description={mode === 'reply'
-          ? '管理账号关键词回复和未命中规则时的默认回复。'
+          ? '管理账号关键词回复、默认回复，以及各回复环节的先后顺序。'
           : '管理按账号或全部账号生效的关键词兜底发货规则。'}
         icon={mode === 'reply' ? MessageSquare : Truck}
       />
@@ -396,6 +397,7 @@ const Keywords: React.FC<KeywordsProps> = ({ mode }) => {
           items={[
             { id: 'reply', label: '关键词回复', icon: Key, count: keywords.length },
             { id: 'default', label: '账号默认回复', icon: Bot, count: enabledDefaultCount },
+            { id: 'order', label: '回复顺序', icon: ListOrdered },
           ]}
         />
       )}
@@ -425,7 +427,7 @@ const Keywords: React.FC<KeywordsProps> = ({ mode }) => {
             </p>
           )}
         </div>
-        <div className="toolbar__group">
+        {!(mode === 'reply' && activeTab === 'order') && <div className="toolbar__group">
           <button
             type="button"
             onClick={refreshCurrent}
@@ -443,7 +445,7 @@ const Keywords: React.FC<KeywordsProps> = ({ mode }) => {
             <Plus className="h-4 w-4" />
             {mode === 'delivery' ? '添加通用规则' : activeTab === 'reply' ? '添加关键词' : '编辑默认回复'}
           </button>
-        </div>
+        </div>}
       </div>
 
       {mode === 'reply' && !selectedAccount ? (
@@ -452,6 +454,8 @@ const Keywords: React.FC<KeywordsProps> = ({ mode }) => {
           description="选择账号后可查看和编辑该账号的自动回复配置。"
           icon={MessageSquare}
         />
+      ) : mode === 'reply' && activeTab === 'order' ? (
+        <ReplyPipelinePanel cookieId={selectedAccount} defaultReply={defaultReplies[selectedAccount]} />
       ) : mode === 'reply' && activeTab === 'reply' ? (
         loading ? (
           <PageLoading label="正在加载关键词回复" />

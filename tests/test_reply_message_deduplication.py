@@ -22,6 +22,7 @@ class ReplyMessageDeduplicationTests(unittest.IsolatedAsyncioTestCase):
         self.live.message_debounce_lock = asyncio.Lock()
         self.live.message_debounce_tasks = {}
         self.live.message_debounce_delay = 0
+        self.live._reply_debounce_delay = lambda: 0
         self.tasks = []
         self.live._create_tracked_task = self.track_task
         self.live.send_notification = AsyncMock()

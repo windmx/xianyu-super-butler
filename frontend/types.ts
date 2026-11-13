@@ -599,6 +599,57 @@ export interface AIReplySettings {
   custom_prompts: string;
 }
 
+export type PromptIntent = 'default' | 'price' | 'tech';
+
+export interface AIPromptConfig {
+  default: string;
+  price: string;
+  tech: string;
+  extra_rules: string;
+}
+
+export interface AIPromptDefaults {
+  prompts: Record<PromptIntent, string>;
+  max_length: number;
+  safety_preview: string;
+}
+
+export interface KnowledgeEntry {
+  id: number;
+  cookie_id: string;
+  item_id: string;
+  title: string;
+  keywords: string;
+  content: string;
+  pinned: boolean;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KnowledgeHit {
+  id: number;
+  title: string;
+  reason: 'pinned' | 'matched';
+  score?: number;
+}
+
+export type ReplyStageKey = 'keyword' | 'ai' | 'item_reply' | 'default';
+export type NativeAutoReplyMode = 'continue' | 'yield' | 'legacy';
+
+export interface ReplyPipelineStage {
+  key: ReplyStageKey;
+  enabled: boolean;
+  require_knowledge_hit?: boolean;
+}
+
+export interface ReplyPipelineConfig {
+  preset: string;
+  stages: ReplyPipelineStage[];
+  native_auto_reply_mode: NativeAutoReplyMode;
+  native_auto_reply_window_seconds: number;
+}
+
 // Default Reply
 export interface DefaultReply {
   cookie_id: string;

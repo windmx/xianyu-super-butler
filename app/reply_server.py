@@ -39,6 +39,7 @@ from app.services.notification_test import (
 from app.routers.delivery_block import create_delivery_block_router
 from app.routers.logistics_quote import create_logistics_quote_router
 from app.routers.logistics_agent import create_logistics_agent_router
+from app.routers.ai_knowledge import create_ai_knowledge_router
 from utils.qr_login import qr_login_manager
 from utils.xianyu_utils import trans_cookies
 from utils.image_utils import image_manager
@@ -384,6 +385,9 @@ logger.info("已注册物流报价解析路由")
 
 app.include_router(create_logistics_agent_router(get_current_user, db_manager))
 logger.info("已注册物流 Agent 路由")
+
+app.include_router(create_ai_knowledge_router(get_current_user, db_manager))
+logger.info("已注册 AI 知识库与回复顺序路由")
 
 # 初始化文件日志收集器
 setup_file_logging()
@@ -4001,7 +4005,7 @@ def list_auto_reply_logs(
     send_status = (send_status or "").strip() or None
     if process_status not in (None, "success", "skipped", "failed"):
         raise HTTPException(status_code=400, detail="无效的处理状态")
-    if reply_strategy not in (None, "keyword", "ai", "default", "api", "none"):
+    if reply_strategy not in (None, "keyword", "ai", "item_reply", "default", "api", "none"):
         raise HTTPException(status_code=400, detail="无效的回复策略")
     if send_status not in (None, "success", "failed", "unknown"):
         raise HTTPException(status_code=400, detail="无效的发送状态")
@@ -6496,6 +6500,9 @@ def update_ai_reply_settings(cookie_id: str, settings: AIReplySettings, current_
         )
         if not settings_dict.get('api_key'):
             settings_dict['api_key'] = db_manager.get_account_ai_api_key(cookie_id)
+        settings_dict['custom_prompts'] = ai_reply_engine.serialize_custom_prompts(
+            ai_reply_engine.parse_custom_prompts(settings.custom_prompts)
+        )
         success = db_manager.save_ai_reply_settings(cookie_id, settings_dict)
 
         if success:
@@ -6535,6 +6542,22 @@ def get_all_ai_reply_settings(current_user: Dict[str, Any] = Depends(get_current
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
 
+@app.get("/ai-reply-prompts/defaults")
+def get_default_ai_prompts(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """内置提示词与系统固定追加段的预览，供页面预填和「恢复默认」。"""
+    return {
+        "prompts": ai_reply_engine.get_builtin_prompts(),
+        "max_length": ai_reply_engine.PROMPT_MAX_LENGTH,
+        "safety_preview": ai_reply_engine.build_safety_prompt(
+            "（当前商品的标题、价格、描述，以及本条消息命中的知识库条目）",
+            "（系统自动统计）",
+            "（按上方设置）",
+            "（按上方设置）",
+            "（按上方设置）",
+        ).strip(),
+    }
+
+
 @app.post("/ai-reply-test/{cookie_id}")
 async def test_ai_reply(cookie_id: str, test_data: dict,
                         current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -6570,19 +6593,37 @@ async def test_ai_reply(cookie_id: str, test_data: dict,
             'desc': test_data.get('item_desc', '这是一个测试商品')
         }
 
+        # 页面上还没保存的提示词草稿，测试时直接使用
+        prompt_draft = test_data.get('custom_prompts')
+        if prompt_draft is not None and not isinstance(prompt_draft, str):
+            raise HTTPException(status_code=400, detail='提示词格式错误')
+        if prompt_draft is not None:
+            prompt_draft = ai_reply_engine.serialize_custom_prompts(
+                ai_reply_engine.parse_custom_prompts(prompt_draft)
+            )
+        test_item_id = str(test_data.get('item_id') or '').strip() or "test_item"
+
         # 生成测试回复（跳过等待时间）
+        trace: Dict[str, Any] = {}
         reply = await ai_reply_engine.generate_reply_async(
             message=test_message,
             item_info=test_item_info,
             chat_id=f"test_{int(time.time())}",
             cookie_id=cookie_id,
             user_id="test_user",
-            item_id="test_item",
-            skip_wait=True  # 测试时跳过10秒等待
+            item_id=test_item_id,
+            skip_wait=True,  # 测试时跳过10秒等待
+            prompt_override=prompt_draft,
+            trace=trace,
         )
 
         if reply:
-            return {"message": "测试成功", "reply": reply}
+            return {
+                "message": "测试成功",
+                "reply": reply,
+                "intent": trace.get('intent'),
+                "knowledge": trace.get('knowledge', []),
+            }
         else:
             raise HTTPException(status_code=400, detail="AI回复生成失败，请检查API Key是否正确、API地址是否可访问")
 
@@ -9395,7 +9436,7 @@ async def import_orders(
 
 # 定义后端 API 的一级路径。未匹配的 API 路径必须返回 JSON 404，不能回退到 SPA。
 API_ROOTS = {
-    'admin', 'ai-reply-settings', 'ai-reply-test', 'analytics', 'api', 'backup',
+    'admin', 'ai-knowledge', 'ai-reply-prompts', 'ai-reply-settings', 'ai-reply-test', 'analytics', 'api', 'backup',
     'cards', 'change-admin-password', 'change-password', 'cookie', 'cookies',
     'blacklist', 'debug', 'default-replies', 'delivery-block-rules', 'delivery-rules', 'face-verification',
     'generate-captcha', 'geetest', 'health', 'item-reply', 'itemReplays', 'items',
@@ -9404,7 +9445,7 @@ API_ROOTS = {
     'keywords-with-type', 'login', 'login-info-settings', 'login-info-status',
     'logout', 'logs', 'message-notifications', 'notification-channels',
     'password-login', 'qr-login', 'quick-phrases', 'register', 'registration-settings',
-    'registration-status', 'risk-control-logs', 'send-message',
+    'registration-status', 'reply-pipeline', 'risk-control-logs', 'send-message',
     'send-verification-code', 'static', 'system', 'system-settings',
     'upload-image', 'user-settings', 'verify', 'verify-captcha', 'xianyu'
 }

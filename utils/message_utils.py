@@ -100,6 +100,35 @@ def extract_received_flower_order(message: Dict[str, Any]) -> Optional[str]:
     match = re.search(r"\d{6,24}", reminder)
     return match.group(0) if match else None
 
+SELLER_MESSAGE_BOT_ECHO = "bot_echo"
+SELLER_MESSAGE_NATIVE_AUTO_REPLY = "native_auto_reply"
+SELLER_MESSAGE_MANUAL = "manual"
+
+
+def classify_seller_message(
+    sent_at_ms: Optional[int],
+    last_buyer_at_ms: Optional[int],
+    window_seconds: float,
+    already_paused: bool = False,
+    is_bot_echo: bool = False,
+) -> str:
+    """判断一条以卖家账号发出的消息是谁发的。
+
+    闲鱼 App 的离线自动回复同样以卖家账号发出，消息帧里没有已知的专属标记，
+    所以按时间判定：它由买家消息触发、几乎立即发出，人读完再打字很难在几秒内回。
+    两个时间都必须是服务端时间（消息帧 ["1"]["5"]），断线重连补推的消息才不会误判。
+    会话已处于人工接管暂停期时一律算人工，卖家连续打字不会被当成自动回复。
+    """
+    if is_bot_echo:
+        return SELLER_MESSAGE_BOT_ECHO
+    if already_paused or not sent_at_ms or not last_buyer_at_ms:
+        return SELLER_MESSAGE_MANUAL
+    gap_ms = sent_at_ms - last_buyer_at_ms
+    if 0 <= gap_ms <= window_seconds * 1000:
+        return SELLER_MESSAGE_NATIVE_AUTO_REPLY
+    return SELLER_MESSAGE_MANUAL
+
+
 def format_message(message_data: Dict[str, Any], is_outgoing: bool = False, is_manual: bool = False) -> str:
     """格式化消息输出"""
     try:
