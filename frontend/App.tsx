@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import GlobalFeedback from './components/GlobalFeedback';
 import AnnouncementBanner from './components/AnnouncementBanner';
@@ -7,6 +7,7 @@ import CaptchaInput from './components/CaptchaInput';
 import { useCaptcha } from './lib/useCaptcha';
 import { validateEmail, validatePassword, validateUsername } from './lib/authValidation';
 import { login, verifyToken, getPublicSettings, register, sendVerificationCode } from './services/api';
+import { confirmAction } from './services/feedback';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock, Menu, Mail, KeyRound, CheckCircle2 } from 'lucide-react';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -185,6 +186,23 @@ const App: React.FC = () => {
     }
   };
 
+  const resetAuthState = (notice = '') => {
+      localStorage.removeItem('auth_token');
+      setIsAdmin(false);
+      setIsLoggedIn(false);
+      setPassword('');
+      setLoginError('');
+      loginCaptcha.setRequired(false);
+      loginCaptcha.setCode('');
+      setRegForm({ username: '', email: '', password: '', code: '' });
+      setRegError('');
+      setRegNotice('');
+      setAuthMode('login');
+      if (notice) setLoginNotice(notice);
+  };
+  const resetAuthRef = useRef(resetAuthState);
+  resetAuthRef.current = resetAuthState;
+
   // Check auth on mount
   useEffect(() => {
       const token = localStorage.getItem('auth_token');
@@ -192,20 +210,20 @@ const App: React.FC = () => {
           verifyToken()
             .then(result => {
               if (!result.authenticated) {
-                localStorage.removeItem('auth_token');
+                resetAuthRef.current();
                 return;
               }
               setIsAdmin(Boolean(result.is_admin));
               setUsername(result.username || '');
               setIsLoggedIn(true);
             })
-            .catch(() => localStorage.removeItem('auth_token'))
+            .catch(() => resetAuthRef.current())
             .finally(() => setCheckingAuth(false));
       } else {
           setCheckingAuth(false);
       }
       
-      const handleLogout = () => setIsLoggedIn(false);
+      const handleLogout = () => resetAuthRef.current('登录已过期，请重新登录');
       window.addEventListener('auth:logout', handleLogout);
       return () => window.removeEventListener('auth:logout', handleLogout);
   }, []);
@@ -239,6 +257,9 @@ const App: React.FC = () => {
               localStorage.setItem('auth_token', res.token);
               setIsAdmin(Boolean(res.is_admin));
               setUsername(res.username || username);
+              setPassword('');
+              loginCaptcha.setRequired(false);
+              loginCaptcha.setCode('');
               setIsLoggedIn(true);
           } else {
               setLoginError(res.message || '账号或密码错误');
@@ -319,7 +340,7 @@ const App: React.FC = () => {
                     {authMode === 'login' ? '登录管理后台' : '注册新账号'}
                   </h2>
                   <p className="mt-2 text-sm text-gray-500">
-                    {authMode === 'login' ? '使用管理员账号进入工作台' : '创建账号后即可登录工作台'}
+                    {authMode === 'login' ? '登录工作台' : '创建账号后即可登录工作台'}
                   </p>
                 </div>
 
@@ -327,7 +348,7 @@ const App: React.FC = () => {
                 <form onSubmit={handleLogin} className="space-y-5">
                   <div className="space-y-4">
                       <label className="block">
-                          <span className="mb-1.5 block text-xs font-bold text-gray-600">管理员账号</span>
+                          <span className="mb-1.5 block text-xs font-bold text-gray-600">账号</span>
                           <div className="relative group">
                             <User className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 group-focus-within:text-gray-700" />
                             <input
@@ -362,6 +383,8 @@ const App: React.FC = () => {
                               code={loginCaptcha.code}
                               onCodeChange={loginCaptcha.setCode}
                               onRefresh={() => void loginCaptcha.refresh()}
+                              loading={loginCaptcha.loading}
+                              failed={loginCaptcha.failed}
                           />
                       )}
                   </div>
@@ -443,6 +466,8 @@ const App: React.FC = () => {
                           code={regCaptcha.code}
                           onCodeChange={regCaptcha.setCode}
                           onRefresh={() => void regCaptcha.refresh()}
+                          loading={regCaptcha.loading}
+                          failed={regCaptcha.failed}
                       />
                       <label className="block">
                           <span className="mb-1.5 block text-xs font-bold text-gray-600">邮箱验证码</span>
@@ -545,9 +570,13 @@ const App: React.FC = () => {
         username={isLoggedIn ? username : ''}
         onUsernameChange={setUsername}
         onLogout={() => {
-            localStorage.removeItem('auth_token');
-            setIsAdmin(false);
-            setIsLoggedIn(false);
+            void confirmAction('确认退出当前账号？', {
+              title: '退出登录',
+              confirmLabel: '退出',
+              danger: false,
+            }).then(ok => {
+              if (ok) resetAuthState();
+            });
         }} 
       />
       
@@ -578,19 +607,19 @@ const App: React.FC = () => {
             <Suspense fallback={activeTab === 'dashboard' ? <PageLoader /> : null}><Dashboard /></Suspense>
           </section>
           <section hidden={activeTab !== 'accounts'}>
-            <Suspense fallback={activeTab === 'accounts' ? <PageLoader /> : null}><AccountList /></Suspense>
+            <Suspense fallback={activeTab === 'accounts' ? <PageLoader /> : null}><AccountList isActive={activeTab === 'accounts'} /></Suspense>
           </section>
           <section hidden={activeTab !== 'items'}>
-            <Suspense fallback={activeTab === 'items' ? <PageLoader /> : null}><ItemList /></Suspense>
+            <Suspense fallback={activeTab === 'items' ? <PageLoader /> : null}><ItemList isActive={activeTab === 'items'} /></Suspense>
           </section>
           <section hidden={activeTab !== 'product-automation'}>
             <Suspense fallback={activeTab === 'product-automation' ? <PageLoader /> : null}><ProductAutomation /></Suspense>
           </section>
           <section hidden={activeTab !== 'orders'}>
-            <Suspense fallback={activeTab === 'orders' ? <PageLoader /> : null}><OrderList /></Suspense>
+            <Suspense fallback={activeTab === 'orders' ? <PageLoader /> : null}><OrderList isActive={activeTab === 'orders'} /></Suspense>
           </section>
           <section hidden={activeTab !== 'cards'}>
-            <Suspense fallback={activeTab === 'cards' ? <PageLoader /> : null}><CardList /></Suspense>
+            <Suspense fallback={activeTab === 'cards' ? <PageLoader /> : null}><CardList isActive={activeTab === 'cards'} /></Suspense>
           </section>
           <section hidden={activeTab !== 'auto-reply'}>
             <Suspense fallback={activeTab === 'auto-reply' ? <PageLoader /> : null}><Keywords mode="reply" /></Suspense>

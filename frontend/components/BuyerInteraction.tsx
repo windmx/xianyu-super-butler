@@ -11,7 +11,7 @@ import {
 } from '../services/api';
 import { notify } from '../services/feedback';
 import { AccountDetail, SystemSettings } from '../types';
-import { NoticeBanner, PageHeader, PageLoading, SectionHeader } from './ui';
+import { EmptyState, NoticeBanner, PageHeader, PageLoading, SectionHeader } from './ui';
 
 const MAX_TEMPLATE_LENGTH = 200;
 
@@ -47,6 +47,7 @@ const INTERVAL_OPTIONS = [
 const BuyerInteraction: React.FC = () => {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   // 开关按账号存：不同账号经营策略不同，不能一开就是全部账号一起开
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
@@ -54,6 +55,7 @@ const BuyerInteraction: React.FC = () => {
 
   const load = () => {
     setLoading(true);
+    setLoadError('');
     Promise.all([
       getSystemSettings(),
       // 模板有内置默认值，只存在于接口返回里，系统设置接口可能还没有这一项
@@ -69,6 +71,7 @@ const BuyerInteraction: React.FC = () => {
         setAccounts(accountList);
         setFlagsByAccount(flags?.accounts ?? {});
       })
+      .catch(error => setLoadError(error instanceof Error ? error.message : '买家互动配置加载失败'))
       .finally(() => setLoading(false));
   };
 
@@ -124,6 +127,20 @@ const BuyerInteraction: React.FC = () => {
     }
   };
 
+  if (!settings && loadError) {
+    return (
+      <EmptyState
+        title="买家互动配置加载失败"
+        description={loadError}
+        icon={Star}
+        action={(
+          <button type="button" className="ios-btn-secondary rounded-md px-4 py-2 text-sm" onClick={load}>
+            重试
+          </button>
+        )}
+      />
+    );
+  }
   if (!settings) return <PageLoading label="正在加载买家互动配置" />;
 
   const accountFlags = (cookieId: string): BuyerInteractionFlags =>
@@ -242,7 +259,7 @@ const BuyerInteraction: React.FC = () => {
             </div>
           )}
           <p className="border-t border-gray-100 px-4 py-3 text-xs leading-5 text-gray-500">
-            三项都在<strong className="font-semibold text-gray-700">买家确认收货</strong>后触发。
+            以下开关都在<strong className="font-semibold text-gray-700">买家确认收货</strong>后触发。
             致谢文本立即发送；评价和求花要等闲鱼把订单切到「交易成功」，通常几十秒内完成，
             失败则由下面的兜底轮询稍后重试。
           </p>

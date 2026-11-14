@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AdminStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
 import { getAdminStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
 import { notify } from '../services/feedback';
-import {TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, BarChart3, PackageCheck, ExternalLink, RefreshCw} from 'lucide-react';
+import {TrendingUp, TrendingDown, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, BarChart3, PackageCheck, ExternalLink, RefreshCw} from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { EmptyState, PageHeader, PageLoading, PageTabs, SectionHeader } from './ui';
 
@@ -39,9 +39,11 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
       <span className={`flex h-9 w-9 items-center justify-center rounded-md ${colorClass}`}>
         <Icon className="h-4 w-4 text-[var(--brand-ink)]" />
       </span>
-      {trend && <span className="status-badge status-badge-success flex items-center gap-1">
-        <TrendingUp className="w-3 h-3" /> {trend}
-      </span>}
+      {trend && (
+        <span className={`status-badge flex items-center gap-1 ${trend.trim().startsWith('-') ? 'status-badge-error' : 'status-badge-success'}`}>
+          {trend.trim().startsWith('-') ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />} {trend}
+        </span>
+      )}
     </div>
     <p className="metric-card__value">{value}</p>
     <p className="metric-card__label mt-1">{title}</p>
@@ -49,6 +51,50 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
 );
 
 type TimeRange = 'today' | 'yesterday' | '3days' | '7days' | '30days' | 'custom';
+
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const shiftDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+/** 本地日历日，图表和订单列表共用，避免 UTC 日期和「今天」对不上。 */
+const resolveDateRange = (
+  range: TimeRange,
+  customStartDate: string,
+  customEndDate: string,
+  now = new Date(),
+): { start_date: string; end_date: string } => {
+  const today = formatLocalDate(now);
+  switch (range) {
+    case 'today':
+      return { start_date: today, end_date: today };
+    case 'yesterday': {
+      const day = formatLocalDate(shiftDays(now, -1));
+      return { start_date: day, end_date: day };
+    }
+    case '3days':
+      return { start_date: formatLocalDate(shiftDays(now, -3)), end_date: today };
+    case '7days':
+      return { start_date: formatLocalDate(shiftDays(now, -7)), end_date: today };
+    case '30days':
+      return { start_date: formatLocalDate(shiftDays(now, -30)), end_date: today };
+    case 'custom':
+      if (customStartDate && customEndDate) {
+        return { start_date: customStartDate, end_date: customEndDate };
+      }
+      return { start_date: formatLocalDate(shiftDays(now, -7)), end_date: today };
+    default:
+      return { start_date: formatLocalDate(shiftDays(now, -7)), end_date: today };
+  }
+};
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -78,104 +124,8 @@ const Dashboard: React.FC = () => {
   const COLORS = ['#ffe100', '#f5c800', '#ffd426', '#e8c86a', '#8fc7a8', '#c9b8e8'];
 
   const loadAnalytics = async (range: TimeRange) => {
-    // 使用本地时间而不是UTC时间
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${year}-${month}-${day}`;
-
-    let params: { start_date: string; end_date: string };
-
-    switch (range) {
-      case 'today':
-        // 今天：从今天00:00:00到今天23:59:59
-        params = {
-          start_date: todayStr,
-          end_date: todayStr
-        };
-        break;
-      case 'yesterday':
-        // 昨天：从昨天00:00:00到昨天23:59:59
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yYear = yesterday.getFullYear();
-        const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-        const yDay = String(yesterday.getDate()).padStart(2, '0');
-        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
-        params = {
-          start_date: yesterdayStr,
-          end_date: yesterdayStr
-        };
-        break;
-      case '3days':
-        // 3天：从3天前到今天
-        const threeDaysAgo = new Date(now);
-        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-        const tdYear = threeDaysAgo.getFullYear();
-        const tdMonth = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
-        const tdDay = String(threeDaysAgo.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${tdYear}-${tdMonth}-${tdDay}`,
-          end_date: todayStr
-        };
-        break;
-      case '7days':
-        // 7天：从7天前到今天
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const sdYear = sevenDaysAgo.getFullYear();
-        const sdMonth = String(sevenDaysAgo.getMonth() + 1).padStart(2, '0');
-        const sdDay = String(sevenDaysAgo.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${sdYear}-${sdMonth}-${sdDay}`,
-          end_date: todayStr
-        };
-        break;
-      case '30days':
-        // 30天：从30天前到今天
-        const thirtyDaysAgo = new Date(now);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const tdYear2 = thirtyDaysAgo.getFullYear();
-        const tdMonth2 = String(thirtyDaysAgo.getMonth() + 1).padStart(2, '0');
-        const tdDay2 = String(thirtyDaysAgo.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${tdYear2}-${tdMonth2}-${tdDay2}`,
-          end_date: todayStr
-        };
-        break;
-      case 'custom':
-        // 自定义范围
-        if (customStartDate && customEndDate) {
-          params = {
-            start_date: customStartDate,
-            end_date: customEndDate
-          };
-        } else {
-          // 默认7天
-          const defaultDaysAgo = new Date(now);
-          defaultDaysAgo.setDate(defaultDaysAgo.getDate() - 7);
-          const ddYear = defaultDaysAgo.getFullYear();
-          const ddMonth = String(defaultDaysAgo.getMonth() + 1).padStart(2, '0');
-          const ddDay = String(defaultDaysAgo.getDate()).padStart(2, '0');
-          params = {
-            start_date: `${ddYear}-${ddMonth}-${ddDay}`,
-            end_date: todayStr
-          };
-        }
-        break;
-      default:
-        // 默认7天
-        const defaultStart = new Date(now);
-        defaultStart.setDate(defaultStart.getDate() - 7);
-        const dsYear = defaultStart.getFullYear();
-        const dsMonth = String(defaultStart.getMonth() + 1).padStart(2, '0');
-        const dsDay = String(defaultStart.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${dsYear}-${dsMonth}-${dsDay}`,
-          end_date: todayStr
-        };
-    }
+    const params = resolveDateRange(range, customStartDate, customEndDate, now);
 
     // 同时获取上一个周期的数据用于趋势对比
     const previousParams = getPreviousPeriodParams(range, now);
@@ -327,48 +277,23 @@ const Dashboard: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [timeRange, reloadToken]);
+  }, [timeRange, customStartDate, customEndDate, reloadToken]);
 
-  // 加载订单列表
+  // 加载订单列表：与图表共用同一套本地日期范围
   useEffect(() => {
-    const { startDate, endDate } = getDatesForRange(timeRange);
+    const { start_date, end_date } = resolveDateRange(timeRange, customStartDate, customEndDate);
 
-    // 获取参与统计的订单列表
     setOrdersLoading(true);
-    getValidOrders({ start_date: startDate, end_date: endDate })
+    getValidOrders({ start_date, end_date })
       .then(orders => {
         setValidOrders(orders);
       })
       .catch(console.error)
       .finally(() => setOrdersLoading(false));
-  }, [timeRange]);
+  }, [timeRange, customStartDate, customEndDate]);
 
-  // 辅助函数：获取时间范围的日期
-  const getDatesForRange = (range: TimeRange) => {
-    const now = new Date();
-    const endDate = now.toISOString().split('T')[0];
-    let startDate = endDate;
-
-    if (range === '7days') {
-      const sevenDaysAgo = new Date(now);
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      startDate = sevenDaysAgo.toISOString().split('T')[0];
-    } else if (range === '30days') {
-      const thirtyDaysAgo = new Date(now);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      startDate = thirtyDaysAgo.toISOString().split('T')[0];
-    }
-    // 其他范围类似处理...
-
-    return { startDate, endDate };
-  };
-
-  // 首次加载：基础数据或订单分析任一未就绪都显示整页 loading；切换时间范围时 analytics 保留旧值，不进这里
-  if (dashboardLoading || !stats || !analytics) {
-    return <PageLoading label="正在汇总经营数据" />;
-  }
-
-  if (dashboardError) {
+  // 失败优先于 loading：stats/analytics 仍为 null 时如果先判空会把错误页挡成永久转圈
+  if (!dashboardLoading && dashboardError) {
     return (
       <div className="p-4 sm:p-8">
         <div className="section-panel mx-auto max-w-xl border-red-200 bg-red-50 p-5">
@@ -390,6 +315,11 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  // 首次加载：基础数据或订单分析任一未就绪都显示整页 loading；切换时间范围时 analytics 保留旧值，不进这里
+  if (dashboardLoading || !stats || !analytics) {
+    return <PageLoading label="正在汇总经营数据" />;
   }
 
   // 趋势图按日期正序展示，后端返回的是倒序

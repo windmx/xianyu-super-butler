@@ -8,6 +8,8 @@ interface CaptchaInputProps {
   onCodeChange: (value: string) => void;
   onRefresh: () => void;
   label?: string;
+  loading?: boolean;
+  failed?: boolean;
 }
 
 /** 图形验证码输入行：输入框 + 验证码图片（点击可换一张）。 */
@@ -17,6 +19,8 @@ const CaptchaInput: React.FC<CaptchaInputProps> = ({
   onCodeChange,
   onRefresh,
   label = '图形验证码',
+  loading = false,
+  failed = false,
 }) => (
   <label className="block">
     <span className="mb-1.5 block text-xs font-bold text-gray-600">{label}</span>
@@ -31,27 +35,32 @@ const CaptchaInput: React.FC<CaptchaInputProps> = ({
         className="ios-input h-11 w-full rounded-md px-4 text-sm uppercase"
       />
       {image ? (
-        <img
-          src={image}
-          alt="图形验证码，点击换一张"
-          title="看不清？点击换一张"
+        <button
+          type="button"
           onClick={onRefresh}
-          className="h-11 w-28 shrink-0 cursor-pointer rounded-md border border-gray-200 bg-white"
-        />
+          disabled={loading}
+          className="h-11 w-28 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white disabled:opacity-60"
+          aria-label="图形验证码，点击换一张"
+          title="看不清？点击换一张"
+        >
+          <img src={image} alt="" className="h-full w-full object-cover" />
+        </button>
       ) : (
         <button
           type="button"
           onClick={onRefresh}
-          className="h-11 w-28 shrink-0 rounded-md border border-gray-200 bg-gray-50 text-xs text-gray-500"
+          disabled={loading}
+          className="h-11 w-28 shrink-0 rounded-md border border-gray-200 bg-gray-50 px-1 text-xs text-gray-500 disabled:opacity-60"
         >
-          点击获取
+          {loading ? '加载中' : failed ? '获取失败，点击重试' : '点击获取'}
         </button>
       )}
       <button
         type="button"
         onClick={onRefresh}
+        disabled={loading}
         aria-label="刷新图形验证码"
-        className="ios-btn-secondary h-11 shrink-0 rounded-md px-2"
+        className="ios-btn-secondary h-11 shrink-0 rounded-md px-2 disabled:opacity-60"
       >
         <RefreshCw className="h-4 w-4" />
       </button>

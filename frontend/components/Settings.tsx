@@ -27,9 +27,10 @@ import {
   updateQuickPhrase,
   updateSystemSettings,
 } from '../services/api';
-import { notify } from '../services/feedback';
+import { confirmAction, notify } from '../services/feedback';
 import { QuickPhrase, SystemSettings } from '../types';
 import {
+  EmptyState,
   NoticeBanner,
   PageHeader,
   PageLoading,
@@ -109,10 +110,17 @@ const Settings: React.FC = () => {
   useEffect(() => { loadPhrases(); }, []);
 
   const handleAddPhrase = async () => {
-    if (!phraseForm.title.trim() || !phraseForm.content.trim()) return;
-    await createQuickPhrase(phraseForm.title.trim(), phraseForm.content.trim(), phraseForm.category.trim() || '默认');
-    setPhraseForm({ category: phraseForm.category, title: '', content: '' });
-    loadPhrases();
+    if (!phraseForm.title.trim() || !phraseForm.content.trim()) {
+      notify('请填写短语标题和内容', 'warning');
+      return;
+    }
+    try {
+      await createQuickPhrase(phraseForm.title.trim(), phraseForm.content.trim(), phraseForm.category.trim() || '默认');
+      setPhraseForm({ category: phraseForm.category, title: '', content: '' });
+      loadPhrases();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '添加快捷短语失败', 'error');
+    }
   };
 
   const handleTogglePhrase = async (phrase: QuickPhrase) => {
@@ -121,8 +129,13 @@ const Settings: React.FC = () => {
   };
 
   const handleDeletePhrase = async (id: number) => {
-    await deleteQuickPhrase(id);
-    loadPhrases();
+    if (!(await confirmAction('确认删除该快捷短语？'))) return;
+    try {
+      await deleteQuickPhrase(id);
+      loadPhrases();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '删除快捷短语失败', 'error');
+    }
   };
 
   const [showApiKey, setShowApiKey] = useState(false);
@@ -130,6 +143,7 @@ const Settings: React.FC = () => {
   // 测试发信：收件地址 + 发送中状态
   const [emailTestTo, setEmailTestTo] = useState('');
   const [emailTesting, setEmailTesting] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
 
   // 修改登录密码。与页面顶部的「保存设置」互不影响：这里改的是当前账号的凭据，
   // 走的是独立接口，成功后立刻生效。
@@ -181,7 +195,11 @@ const Settings: React.FC = () => {
 
   const loadSettings = () => {
     setLoading(true);
-    getSystemSettings().then(setSettings).finally(() => setLoading(false));
+    setSettingsError('');
+    getSystemSettings()
+      .then(setSettings)
+      .catch(error => setSettingsError(error instanceof Error ? error.message : '系统设置加载失败'))
+      .finally(() => setLoading(false));
   };
 
   const handleSave = async () => {
@@ -223,6 +241,20 @@ const Settings: React.FC = () => {
     }
   };
 
+  if (!settings && settingsError) {
+    return (
+      <EmptyState
+        title="系统设置加载失败"
+        description={settingsError}
+        icon={SettingsIcon}
+        action={(
+          <button type="button" className="ios-btn-secondary rounded-md px-4 py-2 text-sm" onClick={loadSettings}>
+            重试
+          </button>
+        )}
+      />
+    );
+  }
   if (!settings) return <PageLoading label="正在加载系统设置" />;
 
   return (
@@ -351,7 +383,7 @@ const Settings: React.FC = () => {
                     value={passwordForm.next}
                     onChange={e => setPasswordForm({ ...passwordForm, next: e.target.value })}
                     autoComplete="new-password"
-                    placeholder="至少 6 位"
+                    placeholder="至少 8 位，含字母和数字"
                     className="ios-input w-full rounded-md px-3 py-2.5 text-sm"
                   />
                 </label>

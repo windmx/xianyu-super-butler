@@ -7,16 +7,28 @@ export function useCaptcha(autoLoad = false) {
   const [image, setImage] = useState('');
   const [code, setCode] = useState('');
   const [required, setRequired] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const refresh = useCallback(async () => {
     const id = newSessionId();
     setSessionId(id);
     setCode('');
+    setLoading(true);
+    setFailed(false);
     try {
       const res = await generateCaptcha(id);
-      if (res.success) setImage(res.captcha_image);
+      if (res.success && res.captcha_image) {
+        setImage(res.captcha_image);
+      } else {
+        setImage('');
+        setFailed(true);
+      }
     } catch {
-      // 拉图失败保留旧图；提交时后端会拦，不会形成绕过
+      setImage('');
+      setFailed(true);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -25,7 +37,7 @@ export function useCaptcha(autoLoad = false) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { sessionId, image, code, setCode, required, setRequired, refresh };
+  return { sessionId, image, code, setCode, required, setRequired, refresh, loading, failed };
 }
 
 function newSessionId(): string {

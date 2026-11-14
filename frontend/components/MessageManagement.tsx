@@ -650,6 +650,7 @@ const MessageManagement: React.FC<MessageManagementProps> = ({ isActive = true }
             type="button"
             onClick={() => void Promise.all([loadAccounts(), loadConversations()])}
             title="刷新账号和会话"
+            aria-label="刷新账号和会话"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-[var(--surface-hover)]"
           >
             <RefreshCw className={`h-4 w-4 ${
@@ -660,6 +661,7 @@ const MessageManagement: React.FC<MessageManagementProps> = ({ isActive = true }
             type="button"
             onClick={() => setView('filters')}
             title="消息过滤规则"
+            aria-label="消息过滤规则"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-[var(--surface-hover)]"
           >
             <Settings2 className="h-4 w-4" />
