@@ -28,7 +28,12 @@ const GlobalFeedback: React.FC = () => {
     };
 
     const handleConfirm = (event: Event) => {
-      setConfirmation((event as CustomEvent<ConfirmEventDetail>).detail);
+      const next = (event as CustomEvent<ConfirmEventDetail>).detail;
+      setConfirmation(current => {
+        // 后一次确认覆盖前一次时，先把旧 Promise 按取消结束，避免调用方一直挂起
+        current?.resolve(false);
+        return next;
+      });
     };
 
     window.addEventListener(FEEDBACK_EVENT, handleFeedback);
@@ -111,6 +116,7 @@ const GlobalFeedback: React.FC = () => {
                 type="button"
                 className="ios-btn-secondary rounded-md px-4 py-2 text-sm"
                 onClick={() => finishConfirmation(false)}
+                autoFocus
               >
                 {confirmation.cancelLabel}
               </button>
@@ -118,7 +124,6 @@ const GlobalFeedback: React.FC = () => {
                 type="button"
                 className={`${confirmation.danger ? 'ios-btn-danger' : 'ios-btn-primary'} rounded-md px-4 py-2 text-sm`}
                 onClick={() => finishConfirmation(true)}
-                autoFocus
               >
                 {confirmation.confirmLabel}
               </button>

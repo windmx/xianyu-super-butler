@@ -14,7 +14,7 @@ const formatShipmentTime = (value?: string) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
 };
 
-const CardList: React.FC = () => {
+const CardList: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [cards, setCards] = useState<Card[]>([]);
   const [shipments, setShipments] = useState<CardShipment[]>([]);
   const [shipmentTotal, setShipmentTotal] = useState(0);
@@ -48,7 +48,8 @@ const CardList: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    getCards().then(setCards);
+    if (!isActive) return undefined;
+    getCards().then(setCards).catch(() => notify('卡密列表加载失败', 'error'));
     loadShipments();
     // 自动发货发生在后端，页面每 15 秒拉一次，保证已发货卡片数量能跟着涨
     const timer = window.setInterval(loadShipments, 15000);
@@ -58,7 +59,7 @@ const CardList: React.FC = () => {
       window.clearInterval(timer);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [loadShipments]);
+  }, [isActive, loadShipments]);
 
   const CardIcon = ({ type }: { type: string }) => {
       switch(type) {
@@ -241,6 +242,8 @@ const CardList: React.FC = () => {
       getCards().then(setCards);
     } catch (error) {
       console.error('切换状态失败:', error);
+      notify('切换卡密状态失败，请重试', 'error');
+      getCards().then(setCards);
     }
   };
 

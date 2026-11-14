@@ -230,17 +230,7 @@ export const syncOrders = async (cookieId?: string, status?: string): Promise<an
   const formData = new FormData();
   if (cookieId) formData.append('cookie_id', cookieId);
   if (status) formData.append('status', status);
-
-  // 使用 fetch 来发送 FormData
-  const token = localStorage.getItem('auth_token');
-  const response = await fetch('/api/orders/refresh', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`
-    },
-    body: formData
-  });
-  return response.json();
+  return post('/api/orders/refresh', formData);
 };
 
 export const syncSingleOrder = async (orderId: string): Promise<any> => {
@@ -256,17 +246,8 @@ export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only
 }
 
 export const importOrders = async (data: Partial<Order>[] | FormData): Promise<any> => {
-  const isFormData = data instanceof FormData;
-  const response = await fetch('/api/orders/import', {
-    method: 'POST',
-    headers: {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-    },
-    body: isFormData ? data : JSON.stringify(data)
-  });
-  return response.json();
-}
+  return post('/api/orders/import', data);
+};
 
 /** 从 Content-Disposition 解析文件名，兼容 filename="x" 与 filename*=UTF-8''x（中文会走后者）两种形式。 */
 const parseExportFilename = (disposition: string | undefined): string => {
@@ -340,12 +321,7 @@ export const syncSoldOrders = async (cookieId?: string, days = 7): Promise<any> 
   if (cookieId) formData.append('cookie_id', cookieId);
   formData.append('days', String(days));
 
-  const response = await fetch('/api/orders/sync-sold', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-    body: formData
-  });
-  return response.json();
+  return post('/api/orders/sync-sold', formData);
 };
 
 export const getOrderRefundRecord = async (orderId: string): Promise<any> => {
@@ -369,12 +345,7 @@ export const createQuickPhrase = async (
   formData.append('category', category);
   formData.append('sort_order', String(sortOrder));
 
-  const response = await fetch('/quick-phrases', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-    body: formData
-  });
-  return response.json();
+  return post('/quick-phrases', formData);
 };
 
 export const updateQuickPhrase = async (
@@ -385,12 +356,7 @@ export const updateQuickPhrase = async (
     if (value !== undefined && value !== null) formData.append(key, String(value));
   });
 
-  const response = await fetch(`/quick-phrases/${id}`, {
-    method: 'PUT',
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-    body: formData
-  });
-  return response.json();
+  return put(`/quick-phrases/${id}`, formData);
 };
 
 export const deleteQuickPhrase = async (id: number): Promise<any> => {
@@ -452,12 +418,7 @@ export const polishItems = async (cookieId?: string, itemIds?: string[]): Promis
   if (cookieId) formData.append('cookie_id', cookieId);
   if (itemIds?.length) formData.append('item_ids', itemIds.join(','));
 
-  const response = await fetch('/api/items/polish', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-    body: formData
-  });
-  return response.json();
+  return post('/api/items/polish', formData);
 };
 
 // 物流轨迹
@@ -520,12 +481,7 @@ export const rateOrders = async (
   formData.append('rate', String(rate));
   formData.append('anonymous', String(anonymous));
 
-  const response = await fetch('/api/orders/rate', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-    body: formData
-  });
-  return response.json();
+  return post('/api/orders/rate', formData);
 };
 
 // Stats

@@ -24,8 +24,13 @@ const levelBadge: Record<string, string> = {
  *
  * 多条公告首尾相接横向滚动；鼠标悬停时暂停，方便阅读长文本。
  */
+const DISMISSED_UPDATE_KEY = 'xianyu-dismissed-update-version';
+
 const AnnouncementBanner: React.FC = () => {
   const [data, setData] = useState<AnnouncementPayload | null>(null);
+  const [dismissedVersion, setDismissedVersion] = useState(
+    () => localStorage.getItem(DISMISSED_UPDATE_KEY) || '',
+  );
 
   useEffect(() => {
     const load = () => {
@@ -40,7 +45,7 @@ const AnnouncementBanner: React.FC = () => {
   }, []);
 
   const announcements = data?.announcements || [];
-  const showUpdate = Boolean(data?.has_update);
+  const showUpdate = Boolean(data?.has_update) && data?.latest_version !== dismissedVersion;
 
   if (!announcements.length && !showUpdate) return null;
 
@@ -83,18 +88,31 @@ const AnnouncementBanner: React.FC = () => {
               </p>
             )}
           </div>
-          {data?.download_url && (
-            <a
-              href={data.download_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ios-btn-primary inline-flex flex-none items-center gap-2 rounded-md px-3 py-2 text-xs"
+          <div className="flex flex-none items-center gap-2">
+            <button
+              type="button"
+              className="ios-btn-secondary rounded-md px-3 py-2 text-xs"
+              onClick={() => {
+                const version = data?.latest_version || '';
+                localStorage.setItem(DISMISSED_UPDATE_KEY, version);
+                setDismissedVersion(version);
+              }}
             >
-              <Download className="h-4 w-4" />
-              前往下载
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
+              稍后提醒
+            </button>
+            {data?.download_url && (
+              <a
+                href={data.download_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ios-btn-primary inline-flex flex-none items-center gap-2 rounded-md px-3 py-2 text-xs"
+              >
+                <Download className="h-4 w-4" />
+                前往下载
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
         </div>
       )}
 

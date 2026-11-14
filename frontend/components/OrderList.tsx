@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Order, OrderStatus, Item, AccountDetail } from '../types';
 import { getOrders, syncOrders, syncSingleOrder, manualShipOrder, updateOrder, updateOrderNote, deleteOrder, importOrders, exportOrders, getItems, syncSoldOrders, getAccountDetails, requireOrderFlower, rateOrders, getSellerFeatureFlags } from '../services/api';
 import { confirmAction, notify } from '../services/feedback';
 import { Search, Truck, RefreshCw, ChevronLeft, ChevronRight, PackageCheck, Edit, Eye, Plus, Save, X, ExternalLink, Trash2, ClipboardList, Flower2, Star, Download, StickyNote } from 'lucide-react';
-import { EmptyState, PageHeader, PageTabs } from './ui';
+import { DialogEffects, EmptyState, PageHeader, PageTabs } from './ui';
 
 const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const styles = {
@@ -32,7 +32,9 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   );
 };
 
-const OrderList: React.FC = () => {
+const SEARCH_PAGE_LIMIT = 50;
+
+const OrderList: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [allOrders, setAllOrders] = useState<Order[]>([]); // 保存所有订单用于搜索
   const [items, setItems] = useState<Item[]>([]);
@@ -44,6 +46,8 @@ const OrderList: React.FC = () => {
   // 每页条数可调，订单量大时避免频繁翻页
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const loadSeq = useRef(0);
   const [syncSoldLoading, setSyncSoldLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   // 各状态的全量条数，由后端统计，避免只按当前页计算
@@ -101,22 +105,31 @@ const OrderList: React.FC = () => {
   };
 
   const loadOrders = async (options?: { silent?: boolean }) => {
+      const seq = ++loadSeq.current;
       // 轮询刷新走静默模式，避免每 20 秒把整个列表闪成加载态
-      if (!options?.silent) setLoading(true);
+      if (!options?.silent) {
+        setLoading(true);
+        setLoadError('');
+      }
 
       try {
           // 如果有搜索文本，加载所有页的数据；否则只加载当前页
           if (searchText.trim()) {
-              // 搜索模式：循环加载所有页
+              // 搜索模式：循环加载，超过上限就停下来让用户缩小范围
               let allOrdersData: Order[] = [];
               let currentPage = 1;
               let hasMore = true;
 
-              while (hasMore) {
+              while (hasMore && currentPage <= SEARCH_PAGE_LIMIT) {
                   const res = await getOrders(accountFilter || undefined, filter, currentPage, 100);
+                  if (seq !== loadSeq.current) return;
                   allOrdersData = [...allOrdersData, ...res.data];
                   hasMore = currentPage < res.total_pages;
                   currentPage++;
+              }
+
+              if (hasMore) {
+                notify('结果过多，请缩小筛选范围', 'warning');
               }
 
               setAllOrders(allOrdersData);
@@ -125,16 +138,24 @@ const OrderList: React.FC = () => {
           } else {
               // 普通模式：只加载当前页
               const res = await getOrders(accountFilter || undefined, filter, page, pageSize);
+              if (seq !== loadSeq.current) return;
               setAllOrders(res.data);
               setOrders(filterOrders(res.data));
               setTotalPages(res.total_pages);
               // 标签计数取后端的全量统计，当前页数据不足以代表全部订单
               if (res.status_counts) setStatusCounts(res.status_counts);
           }
+          if (!options?.silent) setLoadError('');
       } catch (e) {
+          if (seq !== loadSeq.current) return;
           console.error('加载订单失败:', e);
+          if (!options?.silent) {
+            const message = e instanceof Error ? e.message : '订单加载失败';
+            setLoadError(message);
+            notify(message, 'error');
+          }
       } finally {
-          if (!options?.silent) setLoading(false);
+          if (!options?.silent && seq === loadSeq.current) setLoading(false);
       }
   };
 
@@ -191,6 +212,7 @@ const OrderList: React.FC = () => {
   // 单独成一个 effect 是因为下面那个 effect 依赖筛选条件会反复重建，
   // 把定时器放进去会累积泄漏。
   useEffect(() => {
+    if (!isActive) return undefined;
     const syncAccounts = () => {
       getAccountDetails()
         .then(setAccounts)
@@ -199,10 +221,11 @@ const OrderList: React.FC = () => {
     syncAccounts();
     const timer = setInterval(syncAccounts, 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isActive]);
 
   // 买家互动开关：在设置页改动后需要反映到订单页，随账号同步一起刷新
   useEffect(() => {
+    if (!isActive) return undefined;
     const syncFlags = () => {
       getSellerFeatureFlags()
         .then(setSellerFeatures)
@@ -211,7 +234,7 @@ const OrderList: React.FC = () => {
     syncFlags();
     const timer = setInterval(syncFlags, 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isActive]);
 
   // 向买家索要小红花：会真实发出一条消息，需二次确认
   const handleRequireFlower = async (order: Order) => {
@@ -259,13 +282,15 @@ const OrderList: React.FC = () => {
   // 订单状态会被后端持续改写（拉取详情补齐商品名/规格、发货后转状态），
   // 只在筛选变化时加载会让列表停在「未知商品 / unknown_user」这类刚建单时的快照。
   useEffect(() => {
+    if (!isActive) return undefined;
     const timer = setInterval(() => {
       loadOrders({ silent: true });
     }, 20000);
     return () => clearInterval(timer);
-  }, [filter, page, pageSize, searchText, accountFilter]);
+  }, [isActive, filter, page, pageSize, searchText, accountFilter]);
 
   useEffect(() => {
+    if (!isActive) return;
     loadOrders();
 
     // 加载商品列表
@@ -275,12 +300,17 @@ const OrderList: React.FC = () => {
     }).catch((e) => {
       console.error('加载商品列表失败:', e);
     });
-  }, [filter, page, pageSize, searchText, accountFilter]);
+  }, [isActive, filter, page, pageSize, searchText, accountFilter]);
 
   const handleSync = async () => {
       setLoading(true);
-      await syncOrders();
-      loadOrders();
+      try {
+          await syncOrders();
+          await loadOrders();
+      } catch (error) {
+          notify(error instanceof Error ? error.message : '刷新订单状态失败', 'error');
+          setLoading(false);
+      }
   };
 
   // 从卖家端接口拉取真实成交数据，可补齐监听离线期间产生的订单
@@ -783,7 +813,22 @@ const OrderList: React.FC = () => {
               ))}
             </tbody>
           </table>
-          {!loading && orders.length === 0 && (
+          {!loading && loadError && (
+            <div className="p-4">
+              <EmptyState
+                compact
+                icon={PackageCheck}
+                title="订单加载失败"
+                description={loadError}
+                action={(
+                  <button type="button" className="ios-btn-secondary rounded-md px-4 py-2 text-sm" onClick={() => void loadOrders()}>
+                    重试
+                  </button>
+                )}
+              />
+            </div>
+          )}
+          {!loading && !loadError && orders.length === 0 && (
             <div className="p-4">
               <EmptyState
                 compact
@@ -1028,6 +1073,7 @@ const OrderList: React.FC = () => {
       {/* Ship Modal - 发货方式选择 */}
       {showShipModal && createPortal(
         <div className="modal-overlay">
+          <DialogEffects onClose={() => { setShowShipModal(false); setShipResult(null); }} />
           <div className="modal-container" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
               <div className="flex w-full items-start justify-between gap-4">
@@ -1124,6 +1170,7 @@ const OrderList: React.FC = () => {
       {/* Edit Modal - 使用 Portal */}
       {showEditModal && editingOrder && createPortal(
         <div className="modal-overlay">
+          <DialogEffects onClose={() => setShowEditModal(false)} />
           <div className="modal-container">
             <div className="modal-header">
               <div className="flex w-full items-start justify-between gap-4">
@@ -1260,6 +1307,7 @@ const OrderList: React.FC = () => {
       {/* 订单备注弹窗 - 使用 Portal */}
       {noteOrder && createPortal(
         <div className="modal-overlay">
+          <DialogEffects onClose={() => { if (!noteSaving) setNoteOrder(null); }} />
           <div className="modal-container" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
               <div className="flex w-full items-start justify-between gap-4">

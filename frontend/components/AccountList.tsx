@@ -26,7 +26,7 @@ import { EmptyState, PageHeader, PageLoading } from './ui';
 
 type ModalType = 'edit' | 'ai-settings' | null;
 
-const AccountList: React.FC = () => {
+const AccountList: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
   const [loading, setLoading] = useState(true);
   // 风控熔断状态：命中后账号会暂停请求，需要让用户看到而不是只报 409
@@ -127,6 +127,7 @@ const AccountList: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!isActive) return undefined;
     const poll = () => {
       getRiskControlStatus()
         .then(res => setRiskBlocked((res.accounts || []).filter(a => a.blocked || (a.verification_type && a.verification_type !== 'none'))))
@@ -135,9 +136,10 @@ const AccountList: React.FC = () => {
     poll();
     const timer = setInterval(poll, 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isActive]);
 
   useEffect(() => {
+    if (!isActive) return undefined;
     loadAccounts();
     // 账号的 runtime_state 会随后端连接情况变化（连上、断线重连、进出风控），
     // 只在挂载时拉一次会让页面一直停在旧快照上 —— 表现为账号已在正常收发心跳，
@@ -145,17 +147,23 @@ const AccountList: React.FC = () => {
     const timer = setInterval(() => {
       loadAccounts({ silent: true });
     }, 30000);
-    return () => {
-      clearInterval(timer);
-      qrSessionRef.current = '';
-      if (qrPollTimerRef.current) clearTimeout(qrPollTimerRef.current);
-      if (captchaWatchRef.current) clearInterval(captchaWatchRef.current);
-    };
+    return () => clearInterval(timer);
+  }, [isActive]);
+
+  useEffect(() => () => {
+    qrSessionRef.current = '';
+    if (qrPollTimerRef.current) clearTimeout(qrPollTimerRef.current);
+    if (captchaWatchRef.current) clearInterval(captchaWatchRef.current);
   }, []);
 
   const handleToggle = async (id: string, currentStatus: boolean) => {
-    await updateAccountStatus(id, !currentStatus);
-    loadAccounts();
+    try {
+      await updateAccountStatus(id, !currentStatus);
+      await loadAccounts();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '切换账号状态失败', 'error');
+      await loadAccounts({ silent: true });
+    }
   };
 
   // 点按钮时实时取链接，而不是用风控日志里的历史链接 ——
@@ -228,9 +236,13 @@ const AccountList: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (await confirmAction('确认删除该账号吗？')) {
+    if (!(await confirmAction('确认删除该账号吗？'))) return;
+    try {
       await deleteAccount(id);
-      loadAccounts();
+      notify('账号已删除', 'success');
+      await loadAccounts();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '删除账号失败', 'error');
     }
   };
 

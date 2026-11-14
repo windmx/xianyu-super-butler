@@ -185,7 +185,7 @@ export const NoticeBanner: React.FC<NoticeBannerProps> = ({
 }) => {
   const Icon = type === 'success' ? CheckCircle2 : AlertTriangle;
   return (
-    <div className={`notice-banner notice-banner--${type}`} role="status">
+    <div className={`notice-banner notice-banner--${type}`} role={type === 'error' ? 'alert' : 'status'}>
       <Icon className="h-4 w-4 shrink-0" />
       {/* 同时接受 message 与 children：只认 message 时，写成子元素的文案会被
           静默丢掉，页面上只剩一个感叹号图标，而 TS 不会报错（FC 隐式允许 children） */}
@@ -425,5 +425,66 @@ export const Popover: React.FC<PopoverProps> = ({
       {trigger}
       {open && (portal ? createPortal(panelNode, document.body) : panelNode)}
     </div>
+  );
+};
+
+const useDialogLifecycle = (onClose: () => void) => {
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused.current?.focus();
+    };
+  }, []);
+};
+
+/** 嵌进已有 modal-overlay 里，补上 Escape、滚动锁和焦点归还，不必重写弹窗结构。 */
+export const DialogEffects: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  useDialogLifecycle(onClose);
+  return null;
+};
+
+interface ModalProps {
+  onClose: () => void;
+  children: React.ReactNode;
+  className?: string;
+  labelledBy?: string;
+  style?: React.CSSProperties;
+}
+
+/** 统一弹层：Escape 关闭、打开时锁定背景滚动、关闭后把焦点还给触发元素。 */
+export const Modal: React.FC<ModalProps> = ({ onClose, children, className = '', labelledBy, style }) => {
+  useDialogLifecycle(onClose);
+
+  return createPortal(
+    <div
+      className="modal-overlay"
+      role="presentation"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        className={`modal-container ${className}`.trim()}
+        style={style}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
   );
 };

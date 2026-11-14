@@ -26,6 +26,7 @@ import ThemeToggle from './ThemeToggle';
 import { changePassword, updateUsername } from '../services/api';
 import { notify } from '../services/feedback';
 import { validatePassword, validateUsername } from '../lib/authValidation';
+import { Modal } from './ui';
 
 interface SidebarProps {
   activeTab: string;
@@ -61,6 +62,22 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, mo
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [accountMenuOpen]);
+
+  const onMobileCloseRef = useRef(onMobileClose);
+  onMobileCloseRef.current = onMobileClose;
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onMobileCloseRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [mobileOpen]);
 
   const menuGroups = [
     {
@@ -274,11 +291,11 @@ const AccountModal: React.FC<{
     e.preventDefault();
     const trimmed = newValue.trim();
     if (isRename) {
-      const valid = validateUsername(trimmed);
-      if (!valid) { notify('用户名需 3-32 位，仅限字母、数字、下划线或短横线', 'warning'); return; }
+      const [ok, reason] = validateUsername(trimmed);
+      if (!ok) { notify(reason, 'warning'); return; }
     } else {
-      const valid = validatePassword(trimmed);
-      if (!valid) { notify('新密码至少 8 位，且同时包含字母和数字', 'warning'); return; }
+      const [ok, reason] = validatePassword(trimmed);
+      if (!ok) { notify(reason, 'warning'); return; }
       if (trimmed !== confirmValue) { notify('两次输入的新密码不一致', 'warning'); return; }
     }
 
@@ -304,10 +321,9 @@ const AccountModal: React.FC<{
   const inputCls = 'ios-input h-11 w-full rounded-md px-4 text-sm';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={saving ? undefined : onClose}>
+    <Modal onClose={() => { if (!saving) onClose(); }} style={{ maxWidth: 384 }}>
       <form
-        className="w-full max-w-sm rounded-2xl bg-[var(--surface)] p-6 shadow-[0_12px_40px_rgba(20,24,28,0.24)]"
-        onClick={e => e.stopPropagation()}
+        className="p-6"
         onSubmit={e => void handleSubmit(e)}
       >
         <h3 className="text-base font-extrabold text-[var(--text)]">{isRename ? '修改用户名' : '修改密码'}</h3>
@@ -365,7 +381,7 @@ const AccountModal: React.FC<{
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 };
 

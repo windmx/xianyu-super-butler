@@ -177,7 +177,7 @@ const Toggle: React.FC<{
   </button>
 );
 
-const ItemList: React.FC = () => {
+const ItemList: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [items, setItems] = useState<Item[]>([]);
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -326,6 +326,7 @@ const ItemList: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!isActive) return undefined;
     void loadData();
 
     // App 用 hidden 属性切换页面，组件挂载后不会卸载，只在挂载时拉一次的话，
@@ -336,25 +337,10 @@ const ItemList: React.FC = () => {
       getItemDeliveryConfigs().then(setDeliveryConfigs).catch(() => undefined);
     };
 
-    // 兜底轮询
+    syncSharedData();
     const timer = setInterval(syncSharedData, 30000);
-
-    // 切回本页时立即同步：刚在卡密库存加完卡密就切过来的场景，等 30 秒太久。
-    // hidden 切换不触发挂载，因此监听自身可见性变化。
-    const node = rootRef.current;
-    let observer: IntersectionObserver | undefined;
-    if (node) {
-      observer = new IntersectionObserver(entries => {
-        if (entries.some(e => e.isIntersecting)) syncSharedData();
-      });
-      observer.observe(node);
-    }
-
-    return () => {
-      clearInterval(timer);
-      observer?.disconnect();
-    };
-  }, []);
+    return () => clearInterval(timer);
+  }, [isActive]);
 
   const handleSync = async () => {
     if (!selectedAccount) {
